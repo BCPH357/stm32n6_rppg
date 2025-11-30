@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rPPG 即時心率檢測系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 標題欄 -->
+        <header>
+            <h1>🫀 rPPG 即時心率檢測系統</h1>
+            <div class="fps-display">
+                FPS: <span id="fps">0</span>
+            </div>
+        </header>
+
+        <!-- 主要內容區 -->
+        <div class="main-content">
+            <!-- 左側：攝像頭和視頻區 -->
+            <div class="left-panel">
+                <!-- 視頻顯示 -->
+                <div class="video-container">
+                    <video id="video" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+
+                <!-- 控制面板 -->
+                <div class="controls">
+                    <button id="startBtn" class="btn btn-primary">開始檢測</button>
+                    <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                    <button id="resetBtn" class="btn btn-warning">重置</button>
+                </div>
+
+                <!-- 狀態訊息 -->
+                <div class="status-box">
+                    <p id="statusText">請點擊「開始檢測」按鈕</p>
+                    <p id="infoText">影格計數: <span id="frameCount">0</span></p>
+                </div>
+            </div>
+
+            <!-- 右側：數據顯示區 -->
+            <div class="right-panel">
+                <!-- 心率顯示 -->
+                <div class="hr-display">
+                    <div class="hr-label">當前心率</div>
+                    <div class="hr-value" id="hrValue">--</div>
+                    <div class="hr-unit">BPM</div>
+                    <div class="hr-status" id="hrStatus">等待數據...</div>
+                </div>
+
+                <!-- 即時 HR 波形圖 -->
+                <div class="chart-container">
+                    <h3>即時心率波形</h3>
+                    <canvas id="bvpChart"></canvas>
+                </div>
+
+                <!-- 心率趨勢圖 -->
+                <div class="chart-container">
+                    <h3>心率趨勢 (最近 30 秒)</h3>
+                    <canvas id="hrChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- ROI 說明 -->
+        <div class="legend">
+            <h4>ROI 區域說明：</h4>
+            <span class="legend-item"><span class="box green"></span> 前額 (Forehead)</span>
+            <span class="legend-item"><span class="box blue"></span> 左臉頰 (Left Cheek)</span>
+            <span class="legend-item"><span class="box red"></span> 右臉頰 (Right Cheek)</span>
+        </div>
+
+        <!-- 頁腳 -->
+        <footer>
+            <p>Multi-ROI rPPG Model | MAE: 4.65 BPM | Trained on UBFC Dataset</p>
+        </footer>
+    </div>
+
+    <!-- 前端邏輯 -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

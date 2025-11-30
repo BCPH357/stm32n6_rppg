@@ -1,0 +1,8 @@
+# rPPG 模型 INT8 量化所需的額外依賴（服務器端）
+# 安裝方式: pip install -r requirements_server.txt
+
+# ONNX 相關
+onnx>=1.19.0
+onnxruntime>=1.23.0
+
+# 如果已安裝 PyTorch 等其他依賴，這個文件只需安裝 ONNX 相關套件

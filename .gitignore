@@ -1,0 +1,230 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+*.mo
+*.pot
+*.log
+local_settings.py
+instance/
+.webassets-cache
+.scrapy
+docs/_build/
+target/
+.ipynb_checkpoints
+.python-version
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyTorch Models and Checkpoints
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# TensorFlow/Keras Models
+*.h5
+*.keras
+*.pb
+saved_model/
+
+# ONNX Models
+*.onnx
+
+# TFLite Models (keep INT8 versions but ignore FP32)
+*_fp32.tflite
+# Keep: spatial_cnn_int8.tflite, temporal_fusion_int8.tflite
+
+# Dataset Files (large video/image datasets)
+raw_data/
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.flv
+datasets/
+data/raw/
+data/preprocessed/
+*.tar.gz
+*.zip
+*.7z
+
+# Preprocessed Data (large .pt files)
+*_processed.pt
+*_train.pt
+*_val.pt
+*_test.pt
+# Keep small config files
+
+# Training Logs and Outputs
+logs/
+runs/
+wandb/
+lightning_logs/
+output/
+results/
+*.csv
+*.json
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# C/C++ (STM32 Build Artifacts)
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+*.bin
+*.elf
+*.map
+*.lst
+
+# STM32CubeMX and STM32CubeIDE
+*.ioc.bak
+Debug/
+Release/
+.settings/
+.cproject
+.project
+
+# Backup Files
+*.bak
+*.backup
+*.old
+*.orig
+*_backup_*
+network_zerodce.c.backup_*
+
+# Temporary Files
+*.tmp
+*.temp
+tmp/
+temp/
+*.cache
+
+# Large Weight Files (C arrays)
+# Keep: temporal_fusion_weights_exported.c (needed for deployment)
+# But ignore if too large (>10MB)
+# temporal_fusion_weights_exported.c
+
+# Node.js (if any web components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Conda
+*.conda
+*.tar.bz2
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Large Documentation Images (keep small ones)
+*.png
+*.jpg
+*.jpeg
+!docs/images/*.png
+!docs/images/*.jpg
+
+# Test Output
+test_output/
+test_*.txt
+validation_*.txt
+
+# Server-specific
+*.sh.log
+nohup.out
+
+# Keep Important Files (override with !)
+!README.md
+!CLAUDE.md
+!DEVELOPMENT_LOG.md
+!DEPLOY_4D_TO_STM32.md
+!requirements.txt
+!requirements_local.txt
+!config.yaml
+!.gitignore
+
+# Keep Important Code Files
+!*.py
+!*.c
+!*.h
+!*.md
+
+# Keep Small Model Files (if any)
+!models/*.tflite
+!stm32_deployment/*.tflite
+!webapp/models/*.tflite
+
+# Keep Scripts
+!*.sh
+!*.bat
+
+# Keep Deployment Files
+!stm32_deployment/temporal_fusion.h
+!stm32_deployment/temporal_fusion.c
+!stm32_deployment/temporal_fusion_weights_exported.c
+!stm32_deployment/test_temporal_fusion.c

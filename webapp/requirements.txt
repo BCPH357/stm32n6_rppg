@@ -1,0 +1,11 @@
+flask==3.0.0
+flask-socketio==5.3.5
+python-socketio==5.10.0
+opencv-python
+numpy>=1.24.0,<2.0
+scipy
+pillow
+eventlet==0.33.3
+
+# PyTorch: install separately via install.bat
+# pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
