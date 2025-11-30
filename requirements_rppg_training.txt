@@ -1,0 +1,21 @@
+# rPPG 訓練環境依賴
+# 適用於：1_preprocessing, 2_training, 3_model_conversion, 5_validation
+
+# PyTorch
+torch>=2.0.0
+torchvision>=0.15.0
+
+# 數據處理
+numpy>=1.24.0
+opencv-python>=4.8.0
+scipy>=1.10.0
+pandas>=2.0.0
+
+# 訓練工具
+tqdm>=4.65.0
+tensorboard>=2.13.0
+pyyaml>=6.0
+
+# 驗證工具
+matplotlib>=3.7.0
+scikit-learn>=1.3.0

@@ -1,0 +1,12 @@
+# TFLite 導出環境依賴
+# 適用於：4_quantization/spatial_cnn
+
+# TensorFlow
+tensorflow==2.13.1
+
+# PyTorch（用於載入原始模型）
+torch>=2.0.0
+
+# 基礎依賴
+numpy>=1.24.0
+opencv-python>=4.8.0

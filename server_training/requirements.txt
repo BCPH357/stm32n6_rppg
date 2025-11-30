@@ -1,0 +1,11 @@
+# rPPG Training Requirements (Python 3.12.3 + A6000)
+
+torch==2.1.0
+torchvision==0.16.0
+numpy==1.26.0
+scipy==1.11.0
+opencv-python==4.8.1.78
+pyyaml==6.0.1
+tqdm==4.66.1
+tensorboard==2.15.1
+gdown==4.7.1

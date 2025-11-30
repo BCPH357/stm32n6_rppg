@@ -1,429 +1,508 @@
-# rPPG 超轻量模型训练 - 服务器端全流程
+# 🫀 rPPG 心率檢測系統
 
-完整的 rPPG (Remote Photoplethysmography) 训练流程，针对 STM32N6 部署优化。
+**Remote Photoplethysmography (rPPG)** - 基於攝像頭的非接觸式心率檢測系統，部署於 STM32N6 嵌入式平台。
 
-**所有步骤均在服务器端运行（无需本地预处理）**
-
----
-
-## 📁 项目结构
-
-```
-D:\MIAT\rppg\
-├── README.md                   # 本文件
-├── CLAUDE.md                    # 项目文档与历史记录
-├── model.py                     # 模型架构参考
-│
-└── server_training/             # ✅ 服务器端工作目录（上传此文件夹到 server）
-    ├── download_ubfc.sh         # 下载 UBFC 数据集
-    ├── preprocess_data.py       # 数据预处理
-    ├── train.py                 # 训练主脚本
-    ├── model.py                 # 模型定义
-    ├── validate_data.py         # 数据验证工具
-    ├── config.yaml              # 训练配置
-    ├── requirements.txt         # Python 依赖
-    ├── environment.yml          # Conda 环境配置
-    ├── setup_env.sh             # 环境设置脚本
-    ├── run_training.sh          # 训练启动脚本
-    ├── run_all.sh               # 一键运行所有步骤
-    │
-    ├── raw_data/                # 原始数据集（下载后存放）
-    │   └── UBFC-rPPG/
-    │       └── subject*/
-    │
-    ├── data/                    # 预处理数据
-    │   ├── ubfc_processed.pt
-    │   └── dataset_info.json
-    │
-    ├── checkpoints/             # 训练输出
-    │   ├── best_model.pth
-    │   └── train_history.json
-    │
-    └── logs/                    # 训练日志
-        └── train_*.log
-```
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![STM32N6](https://img.shields.io/badge/STM32-N6-03234b.svg)](https://www.st.com/stm32n6)
 
 ---
 
-## 🚀 快速开始
+## 📋 目錄
 
-### 前置要求
-
-- Linux 服务器（推荐 Ubuntu 20.04+）
-- NVIDIA GPU（推荐 A6000，至少 RTX 3090）
-- CUDA 12.1
-- Conda / Miniconda
-- 约 10 GB 磁盘空间
-
-### 一键运行（推荐）
-
-```bash
-# 1. 拷贝项目到服务器
-scp -r server_training username@server:/path/to/rppg_training/
-
-# 2. SSH 到服务器
-ssh username@server
-cd /path/to/rppg_training/
-
-# 3. 设置环境
-bash setup_env.sh
-
-# 4. 一键运行所有步骤（下载 → 预处理 → 训练）
-bash run_all.sh
-```
-
-**预计总耗时**: 4-6 小时
+- [專案概述](#-專案概述)
+- [快速開始](#-快速開始)
+- [目錄結構](#-目錄結構)
+- [完整流程](#-完整流程)
+- [Web 應用](#-web-應用)
+- [STM32N6 部署](#-stm32n6-部署)
+- [效能指標](#-效能指標)
+- [技術文檔](#-技術文檔)
+- [常見問題](#-常見問題)
+- [授權](#-授權)
 
 ---
 
-## 📖 详细步骤
+## 🎯 專案概述
 
-### Step 1: 上传项目到服务器
+### 核心功能
 
-```bash
-# 在本地 Windows 执行
-cd D:\MIAT\rppg
-scp -r server_training username@server_ip:/home/username/rppg_training/
+本專案實現一個完整的 rPPG 心率檢測系統，包括：
 
-# 或使用 rsync（支持断点续传）
-rsync -avz --progress server_training/ username@server_ip:/home/username/rppg_training/
+1. **數據處理與訓練**（服務器端）
+   - UBFC-rPPG 數據集處理（42 subjects）
+   - Multi-ROI 特徵提取（前額、左右臉頰）
+   - 健壯的 PPG → HR 標籤計算（Bandpass + Peak Detection）
+   - 輕量級模型訓練（MAE: 4.65 BPM, ~20K 參數）
+
+2. **Web 應用**（即時心率監測）
+   - Flask + WebSocket 後端架構
+   - 攝像頭即時捕獲（30 fps）
+   - Haar Cascade 臉部檢測
+   - Multi-ROI 推論（~10 fps）
+   - 即時圖表顯示（Chart.js）
+
+3. **嵌入式部署**（STM32N6）
+   - Pattern A 分離式架構（Spatial CNN on NPU + Temporal Fusion on CPU）
+   - INT8 量化（TFLite）
+   - 純 C 語言實現（Temporal Fusion）
+   - NPU 加速推論
+
+### 模型架構
+
+```
+Input: (B, 8, 3, 36, 36, 3)
+  ↓ 8 時間步 × 3 ROI × 36×36 RGB
+[Shared Spatial CNN] 提取空間特徵 (9,840 params)
+  ↓ 產生 24 × 16 特徵向量
+[Temporal Fusion] 時序建模 (10,353 params)
+  ↓ Conv1D + FC layers
+Output: Heart Rate [30, 180] BPM
 ```
 
-### Step 2: 环境设置（一次性）
+**總參數**: 20,193 個（遠低於 500K 目標）
+
+---
+
+## 🚀 快速開始
+
+### 選項 A: Web 應用（本地測試）
 
 ```bash
-# SSH 到服务器
-ssh username@server_ip
-cd /home/username/rppg_training/
+# 1. 安裝依賴
+cd webapp
+install.bat
 
-# 运行设置脚本
-bash setup_env.sh
+# 2. 啟動服務器
+start.bat
+
+# 3. 打開瀏覽器
+http://localhost:5000
 ```
 
-**脚本将**：
-- 创建目录结构（raw_data/, data/, checkpoints/, logs/）
-- 创建名为 `rppg_training` 的 conda 环境
-- 安装 PyTorch 2.1.0 + CUDA 12.1
-- 安装所有依赖（包括 gdown 用于下载数据集）
-- 验证安装
-
-### Step 3: 下载数据集
+### 選項 B: 完整訓練流程（服務器端）
 
 ```bash
+# 1. 連接到服務器
+ssh miat@140.115.53.67
+cd /mnt/data_8T/ChenPinHao/rppg/
+
+# 2. 激活環境
 conda activate rppg_training
-bash download_ubfc.sh
+
+# 3. 執行各階段
+cd 1_preprocessing && python preprocess_data.py
+cd ../2_training && python train.py
+cd ../3_model_conversion && python migrate_weights.py
+cd ../4_quantization/spatial_cnn && python export_tflite_split_v2.py
+cd ../temporal_fusion && python export_temporal_fusion_weights.py
 ```
 
-**说明**：
-- 使用 `gdown` 从 Google Drive 自动下载 UBFC-rPPG 数据集
-- 预计时间：30-60 分钟（取决于网速）
-- 输出：`raw_data/UBFC-rPPG/subject01-43/`
-- 数据集大小：约 5 GB
+### 選項 C: STM32N6 部署
 
-**如果 gdown 下载失败**：
-1. 访问：https://sites.google.com/view/ybenezeth/ubfcrppg
-2. 手动下载数据集到本地
-3. 使用 scp 上传到服务器：
-   ```bash
-   scp -r UBFC-rPPG username@server:/path/to/rppg_training/raw_data/
-   ```
+參見 [`stm32_rppg/README.md`](stm32_rppg/README.md) 完整部署指南。
 
-### Step 4: 数据预处理
+---
 
+## 📁 目錄結構
+
+```
+rppg/
+├── 1_preprocessing/          # 數據前處理
+│   ├── preprocess_data.py    # 主要腳本
+│   ├── data/                 # 預處理數據
+│   └── README.md
+│
+├── 2_training/               # 模型訓練
+│   ├── model.py              # UltraLightRPPG 模型
+│   ├── train.py              # 訓練主程式
+│   ├── checkpoints/          # 訓練權重
+│   └── README.md
+│
+├── 3_model_conversion/       # 模型轉換
+│   ├── model_split.py        # 拆分為 Spatial CNN + Temporal Fusion
+│   ├── migrate_weights.py    # 權重遷移
+│   └── README.md
+│
+├── 4_quantization/           # 模型量化
+│   ├── spatial_cnn/          # TFLite INT8 量化
+│   │   ├── export_tflite_split_v2.py
+│   │   └── validate_tflite.py
+│   ├── temporal_fusion/      # C 權重導出
+│   │   ├── export_temporal_fusion_weights.py
+│   │   └── validate_c_vs_pytorch.py
+│   └── README.md
+│
+├── 5_validation/             # 模型驗證
+│   ├── evaluate_quantized_model.py
+│   ├── test_roi_extraction.py
+│   └── README.md
+│
+├── stm32_rppg/               # STM32N6 部署
+│   ├── temporal_fusion/      # Temporal Fusion C 實現
+│   │   ├── temporal_fusion.h
+│   │   ├── temporal_fusion.c
+│   │   └── temporal_fusion_weights_exported.c
+│   ├── preprocessing/        # 前處理代碼範例
+│   ├── postprocessing/       # 後處理代碼範例
+│   ├── docs/                 # 部署文檔
+│   └── README.md
+│
+├── webapp/                   # Web 應用
+│   ├── app.py                # Flask 後端
+│   ├── inference.py          # 推論邏輯
+│   ├── model.py              # 模型定義
+│   ├── models/               # 訓練模型
+│   ├── static/               # 前端資源
+│   ├── templates/            # HTML 模板
+│   └── README.md
+│
+├── models/                   # 共享模型檔案
+│   └── spatial_cnn_int8.tflite
+│
+├── scripts/                  # 輔助腳本
+│   ├── setup_env.sh
+│   └── run_training.sh
+│
+├── docs/                     # 文檔
+│   └── archive/              # 過時文檔（歷史記錄）
+│
+├── CLAUDE.md                 # 專案技術概述
+├── README.md                 # 本文件
+├── requirements_rppg_training.txt     # 訓練環境依賴
+├── requirements_tflite_export.txt     # TFLite 導出環境依賴
+└── .gitignore
+```
+
+---
+
+## 🔄 完整流程
+
+### 階段 1: 數據前處理
+
+**目標**: 處理 UBFC-rPPG 數據集，生成訓練數據
+
+**執行**:
 ```bash
+cd 1_preprocessing
 python preprocess_data.py --dataset ubfc --raw_data raw_data --output data
 ```
 
-**说明**：
-- 使用 Haar Cascade 检测脸部
-- 提取 3 个 ROI 区域（前额、左脸颊、右脸颊）
-- 每个 ROI 调整为 36×36 像素
-- 创建时间窗口样本（8 帧/窗口）
-- 预计时间：2-3 小时（CPU 密集）
-- 输出：`data/ubfc_processed.pt`（约 1.2 GB）
+**輸出**: `data/ubfc_processed.pt` (~15000 樣本)
 
-### Step 5: 验证数据（可选但推荐）
-
-```bash
-# 验证原始数据
-python validate_data.py --mode raw
-
-# 验证预处理数据
-python validate_data.py --mode preprocessed
-
-# 验证两者
-python validate_data.py --mode both
-```
-
-### Step 6: 训练模型
-
-```bash
-bash run_training.sh
-```
-
-**说明**：
-- 使用 A6000 GPU 训练
-- Batch size: 128
-- Epochs: 50 (with early stopping)
-- 预计时间：1.5-2 小时
-- 输出：
-  - `checkpoints/best_model.pth` - 最佳模型
-  - `checkpoints/train_history.json` - 训练历史
-  - `logs/train_YYYYMMDD_HHMMSS.log` - 训练日志
+**詳情**: [`1_preprocessing/README.md`](1_preprocessing/README.md)
 
 ---
 
-## 📊 模型信息
+### 階段 2: 模型訓練
 
-### UltraLightRPPG (Multi-ROI 版本)
+**目標**: 訓練 UltraLightRPPG 模型
 
-- **架构**: Shared 2D CNN (空间) + 1D Conv (时序) + ROI Fusion
-- **参数量**: ~20K（比单 ROI 版本减少 60%）
-- **输入**: (B, 8, 3, 36, 36, 3)
-  - B: Batch size
-  - 8: 时间窗口（8 帧）
-  - 3: ROI 数量（前额、左脸颊、右脸颊）
-  - 36×36: 图像尺寸
-  - 3: RGB 通道
-- **输出**: (B, 1) - BVP 值
-- **记忆体需求**: ~80 KB（模型权重）
-- **适合**: STM32N6 部署
-
-### 网络结构
-
+**執行**:
+```bash
+cd 2_training
+python train.py --config config.yaml
 ```
-Input (B, 8, 3, 36, 36, 3)
-    ↓
-Reshape → (B*T*ROI, C, H, W) = (B*24, 3, 36, 36)
-    ↓
-Shared Spatial CNN (所有 ROI 共享权重)
-  - Conv2D(3→16) + BN + ReLU + MaxPool   (36×36 → 18×18)
-  - Conv2D(16→32) + BN + ReLU + MaxPool  (18×18 → 9×9)
-  - Conv2D(32→16) + BN + ReLU
-  - AdaptiveAvgPool2d(1)                  (9×9 → 1×1)
-    ↓ (B*24, 16)
-Reshape → (B, T, ROI, 16) = (B, 8, 3, 16)
-    ↓
-ROI Fusion (Concatenation) → (B, 8, 48)
-    ↓
-Transpose → (B, 48, 8)
-    ↓
-Temporal Conv1D
-  - Conv1D(48→32, k=3) + ReLU
-  - Conv1D(32→16, k=3) + ReLU
-    ↓ (B, 16, 8)
-Flatten → (B, 128)
-    ↓
-Fully Connected
-  - Linear(128→32) + ReLU
-  - Linear(32→1)
-    ↓
-Output (B, 1) - BVP value
-```
+
+**輸出**: `checkpoints/best_model.pth` (MAE: 4.65 BPM)
+
+**詳情**: [`2_training/README.md`](2_training/README.md)
 
 ---
 
-## 🔧 自定义配置
+### 階段 3: 模型轉換
 
-### 修改训练参数
+**目標**: 拆分為 Spatial CNN 和 Temporal Fusion
 
-编辑 `config.yaml`:
-
-```yaml
-# 数据路径
-data_paths:
-  - 'data/ubfc_processed.pt'
-
-# 训练参数
-batch_size: 128         # 可调整 (64, 128, 256)
-num_epochs: 50          # 可调整
-learning_rate: 0.001    # 可调整
-train_split: 0.8        # 训练/验证比例
-
-# Early stopping
-early_stopping_patience: 5
-
-# 硬件
-num_workers: 4
+**執行**:
+```bash
+cd 3_model_conversion
+python migrate_weights.py
 ```
 
-### 修改模型架构
+**輸出**:
+- `checkpoints/spatial_cnn.pth`
+- `checkpoints/temporal_fusion.pth`
 
-编辑 `model.py` 中的 `UltraLightRPPG` 类。
+**詳情**: [`3_model_conversion/README.md`](3_model_conversion/README.md)
 
 ---
 
-## 📈 监控训练
+### 階段 4: 模型量化
 
-### 方法 1: 查看日志文件
+**目標**: 量化為 STM32 部署格式
 
+**執行**:
 ```bash
-tail -f logs/train_YYYYMMDD_HHMMSS.log
-```
+# Spatial CNN: TFLite INT8
+cd 4_quantization/spatial_cnn
+conda activate tflite_export
+python export_tflite_split_v2.py
 
-### 方法 2: 使用 screen/tmux（推荐用于长时间训练）
-
-```bash
-# 创建新 session
-screen -S rppg_training
-
-# 运行训练
-bash run_all.sh
-
-# 分离 session: Ctrl+A, D
-
-# 重新连接
-screen -r rppg_training
-```
-
----
-
-## ✅ 验证结果
-
-训练完成后，检查：
-
-1. **最佳模型**: `checkpoints/best_model.pth`
-2. **训练历史**: `checkpoints/train_history.json`
-3. **日志文件**: `logs/train_YYYYMMDD_HHMMSS.log`
-
-### 预期性能
-
-基于 UBFC 数据集：
-- **MAE**: 3-5 BPM（目标）
-- **RMSE**: 4-6 BPM
-- **MAPE**: 5-10%
-
-### 下载模型到本地
-
-```bash
-# 在本地执行
-scp username@server:/path/to/rppg_training/checkpoints/best_model.pth .
-```
-
----
-
-## 🐛 故障排除
-
-### 问题 1: gdown 下载失败
-
-```
-Error: Cannot download from Google Drive
-```
-
-**解决**：
-1. 检查网络连接
-2. 使用备用下载方法（见 Step 3）
-3. 或使用 `rclone`:
-   ```bash
-   rclone copy "drive:UBFC-rPPG" raw_data/UBFC-rPPG/ --progress
-   ```
-
-### 问题 2: CUDA Out of Memory
-
-```
-RuntimeError: CUDA out of memory
-```
-
-**解决**：降低 batch size
-```yaml
-# config.yaml
-batch_size: 64  # 或更小
-```
-
-### 问题 3: Haar Cascade 文件缺失
-
-```
-Error: haarcascade_frontalface_default.xml not found
-```
-
-**解决**：
-```bash
-# 验证文件
-python -c "import cv2; print(cv2.data.haarcascades)"
-
-# 如果不存在，手动下载
-wget https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml
-```
-
-### 问题 4: 数据集未找到
-
-```
-Error: UBFC directory not found
-```
-
-**解决**：确认目录结构
-```bash
-ls raw_data/UBFC-rPPG/
-# 应该看到 subject1, subject2, ... subject43
-```
-
-### 问题 5: 环境创建失败
-
-```
-Error: Could not create conda environment
-```
-
-**解决**：手动安装
-```bash
-conda create -n rppg_training python=3.12.3
+# Temporal Fusion: C 權重
+cd ../temporal_fusion
 conda activate rppg_training
-pip install -r requirements.txt
+python export_temporal_fusion_weights.py
 ```
 
+**輸出**:
+- `../../models/spatial_cnn_int8.tflite` (~20 KB)
+- `../../stm32_rppg/temporal_fusion/temporal_fusion_weights_exported.c` (~200 KB)
+
+**詳情**: [`4_quantization/README.md`](4_quantization/README.md)
+
 ---
 
-## 📝 注意事项
+### 階段 5: 模型驗證
 
-### 资源需求
-- **磁盘空间**: 约 10 GB
-  - 原始数据：~5 GB
-  - 预处理数据：~1.2 GB
-  - 模型和日志：~100 MB
-  - 剩余缓冲：~4 GB
-- **内存**: 至少 16 GB RAM
-- **GPU**: 至少 8 GB VRAM（推荐 24 GB）
+**目標**: 驗證量化精度
 
-### 时间成本
-| 阶段 | 时间 | 硬件 |
+**執行**:
+```bash
+cd 5_validation
+python evaluate_quantized_model.py
+```
+
+**預期**: MAE 增加 < 1.5 BPM
+
+**詳情**: [`5_validation/README.md`](5_validation/README.md)
+
+---
+
+## 🌐 Web 應用
+
+### 功能特色
+
+- ✅ 即時心率監測（~10 fps）
+- ✅ Multi-ROI 可視化（前額、左右臉頰）
+- ✅ 歷史心率圖表（Chart.js）
+- ✅ 自動臉部檢測（Haar Cascade）
+- ✅ WebSocket 即時通訊
+
+### 快速啟動
+
+```bash
+cd webapp
+install.bat  # 或 pip install -r requirements.txt
+start.bat    # 或 python app.py
+```
+
+訪問 http://localhost:5000
+
+### 系統需求
+
+- 光線充足（避免逆光、暗光）
+- 臉部正對攝像頭（±15° 偏轉可接受）
+- 保持相對靜止
+- 建議距離：50-100 cm
+
+**詳情**: [`webapp/README.md`](webapp/README.md)
+
+---
+
+## 🚀 STM32N6 部署
+
+### 部署架構
+
+```
+Camera (640×480 RGB)
+    ↓ 捕獲 8 幀
+ROI 提取 (3 × 36×36)
+    ↓
+Spatial CNN (NPU, INT8) × 24 次推論
+    ↓ 產生 24 × 16 特徵
+Temporal Fusion (CPU, C 語言)
+    ↓
+Heart Rate [30, 180] BPM
+```
+
+### 快速步驟
+
+1. **STM32CubeMX 配置**
+   - 導入 `models/spatial_cnn_int8.tflite`
+   - Optimization: O1 或 O2（避免 O3）
+   - Runtime: Neural-ART (NPU)
+
+2. **整合代碼**
+   - 複製 `stm32_rppg/temporal_fusion/` 到 STM32 項目
+   - 實現應用層邏輯（參考 `preprocessing/` 和 `postprocessing/`）
+
+3. **編譯與測試**
+   - 編譯項目
+   - Flash 到 STM32N6
+   - 驗證心率輸出
+
+**完整指南**: [`stm32_rppg/README.md`](stm32_rppg/README.md)
+
+### 關鍵配置
+
+| 配置項 | 推薦值 | 說明 |
+|--------|--------|------|
+| Optimization | O1 或 O2 | ❌ 避免 O3（基於 Zero-DCE 教訓） |
+| Runtime | Neural-ART | NPU 加速 |
+| Memory Pools | Auto | 信任工具自動分配 |
+
+---
+
+## 📊 效能指標
+
+### 模型精度
+
+| 指標 | 訓練模型 | 量化模型 | 說明 |
+|------|----------|----------|------|
+| **MAE** | 4.65 BPM | ~5.1 BPM | 平均絕對誤差 |
+| **RMSE** | 7.23 BPM | ~8.0 BPM | 均方根誤差 |
+| **MAPE** | 6.82% | ~7.5% | 平均百分比誤差 |
+| **R²** | 0.87 | ~0.85 | 決定係數 |
+
+### 模型大小
+
+| 模型 | 格式 | 大小 | 壓縮率 |
+|------|------|------|--------|
+| Spatial CNN (FP32) | PyTorch | ~80 KB | - |
+| Spatial CNN (INT8) | TFLite | ~20 KB | **4x** |
+| Temporal Fusion | C 權重 | ~200 KB | - |
+| **總計** | - | ~220 KB | - |
+
+### STM32N6 性能（預估）
+
+| 指標 | 數值 | 說明 |
 |------|------|------|
-| 下载数据 | 30-60 分钟 | 网络 |
-| 预处理 | 2-3 小时 | CPU |
-| 训练 | 1.5-2 小时 | GPU |
-| **总计** | **4-6 小时** | |
-
-### Multi-ROI 特性
-- 使用 3 个 ROI 区域提升准确度
-- 每个 ROI 独立处理后融合
-- 参数量减少但准确度提升
-- 更适合 STM32N6 部署
+| Spatial CNN 推論 | ~20 ms | NPU 加速 |
+| Temporal Fusion 推論 | ~5 ms | CPU 執行 |
+| 總延遲 | ~500 ms | 包含 8 幀捕獲 |
+| 心率更新頻率 | ~2 Hz | 每秒 2 次 |
 
 ---
 
-## 📞 下一步
+## 📚 技術文檔
 
-训练完成后：
-1. ✅ 下载 `checkpoints/best_model.pth` 回本地
-2. 转换为 ONNX 格式
-   ```python
-   import torch
-   model.eval()
-   dummy_input = torch.randn(1, 8, 3, 36, 36, 3)
-   torch.onnx.export(model, dummy_input, "rppg_model.onnx")
-   ```
-3. 使用 X-CUBE-AI 转换为 STM32 格式
-4. 部署到 STM32N6
+### 主要文檔
+
+- [`CLAUDE.md`](CLAUDE.md) - 專案技術概述、技術限制、開發建議
+- [`1_preprocessing/README.md`](1_preprocessing/README.md) - 數據前處理詳細說明
+- [`2_training/README.md`](2_training/README.md) - 模型訓練詳細說明
+- [`3_model_conversion/README.md`](3_model_conversion/README.md) - 模型轉換詳細說明
+- [`4_quantization/README.md`](4_quantization/README.md) - 量化詳細說明
+- [`5_validation/README.md`](5_validation/README.md) - 驗證詳細說明
+- [`stm32_rppg/README.md`](stm32_rppg/README.md) - STM32N6 部署完整指南
+- [`webapp/README.md`](webapp/README.md) - Web 應用使用說明
+
+### STM32 部署文檔
+
+- [`stm32_rppg/docs/deployment_guide.md`](stm32_rppg/docs/deployment_guide.md) - 完整部署流程
+- [`stm32_rppg/docs/cubemx_config.md`](stm32_rppg/docs/cubemx_config.md) - STM32CubeMX 配置
+- [`stm32_rppg/docs/troubleshooting.md`](stm32_rppg/docs/troubleshooting.md) - 故障排除
+
+### 歷史文檔
+
+- [`docs/archive/ARCHIVE.md`](docs/archive/ARCHIVE.md) - 過時文檔說明
+- [`docs/archive/DEVELOPMENT_LOG.md`](docs/archive/DEVELOPMENT_LOG.md) - 開發歷史記錄
 
 ---
 
-## 📚 参考资料
+## ❓ 常見問題
 
-- **UBFC-rPPG**: https://sites.google.com/view/ybenezeth/ubfcrppg
-- **PyTorch**: https://pytorch.org/
-- **X-CUBE-AI**: https://www.st.com/en/embedded-software/x-cube-ai.html
-- **项目文档**: 参见 `CLAUDE.md`
+### Q1: 為什麼使用 Pattern A 分離式架構？
+
+**A**: STM32N6 的 X-CUBE-AI 限制最多 4D 張量，原始 6D 輸入無法直接部署。分離式架構：
+- Spatial CNN 處理單個 ROI（4D 張量）
+- Temporal Fusion 在 CPU 上處理時序（純 C 實現）
+- 避免複雜的 6D→4D 轉換
+
+### Q2: 為什麼 Temporal Fusion 不用 TFLite？
+
+**A**: 純 C 實現更靈活：
+- 完全控制內存分配
+- 更容易調試和優化
+- 避免額外的 TFLite Runtime 開銷
+- 已驗證與 PyTorch 完全等價（差異 < 1e-5 BPM）
+
+### Q3: STM32 優化級別為什麼要避免 O3？
+
+**A**: 基於 Zero-DCE 失敗經驗：
+- O3 (Balanced) 導致激進內存重用
+- 緩衝區地址重疊（輸入/輸出相同地址）
+- 推論第一次調用就返回 ERROR
+- 所有手動修復嘗試均失敗
+- **結論**: 使用 O1 (Default) 或 O2 (Time)，信任工具自動分配
+
+### Q4: 量化後精度損失多少？
+
+**A**:
+- Spatial CNN INT8 量化: MAE 增加約 **+0.5 BPM**（EXCELLENT）
+- 總體精度損失 < 1.5 BPM（可接受範圍）
+- 使用分層採樣的校準數據集確保各 HR 範圍都有代表
+
+### Q5: Web 應用對環境有什麼要求？
+
+**A**:
+- ✅ 光線充足（自然光或均勻室內光）
+- ✅ 臉部正對攝像頭（±15° 可接受）
+- ✅ 保持相對靜止（輕微點頭 OK）
+- ❌ 避免逆光、暗光、側臉、遮擋
+- 建議距離：50-100 cm
 
 ---
 
-**版本**: 2.0 - 服务器端全流程
-**日期**: 2025-11-18
-**更新**: 从"本地预处理+服务器训练"迁移到"纯服务器端"架构
+## 🛠️ 環境需求
+
+### Python 環境
+
+**rPPG 訓練環境**（階段 1-3, 5）:
+```bash
+pip install -r requirements_rppg_training.txt
+```
+- Python 3.8+
+- PyTorch 2.0+
+- OpenCV 4.8+
+- NumPy, SciPy, Pandas
+
+**TFLite 導出環境**（階段 4）:
+```bash
+conda create -n tflite_export python=3.10
+conda activate tflite_export
+pip install -r requirements_tflite_export.txt
+```
+- TensorFlow 2.13.1
+- PyTorch 2.0+
+
+### STM32 環境
+
+- **MCU**: STM32N6 系列
+- **IDE**: STM32CubeIDE
+- **工具**: STM32CubeMX + X-CUBE-AI 10.x
+- **編譯器**: GCC ARM Embedded
+
+---
+
+## 🔗 相關資源
+
+### 論文與數據集
+- **UBFC-rPPG 數據集**: https://sites.google.com/view/ybenezeth/ubfcrppg
+- **ME-rPPG**: https://arxiv.org/abs/2504.01774
+
+### STM32 技術資源
+- **X-CUBE-AI 官方文檔**: https://www.st.com/en/embedded-software/x-cube-ai.html
+- **STM32N6 產品頁**: https://www.st.com/stm32n6
+- **Neural-ART Runtime**: https://wiki.st.com/stm32mcu/wiki/AI:X-CUBE-AI
+
+---
+
+## 📄 授權
+
+本專案採用 MIT License 授權。
+
+---
+
+## 👥 貢獻
+
+歡迎提交 Issue 和 Pull Request！
+
+---
+
+**版本**: 2.0 (重構版)
+**最後更新**: 2025-01-XX
+**維護者**: BCPH357
+**GitHub**: https://github.com/BCPH357/stm32n6_rppg

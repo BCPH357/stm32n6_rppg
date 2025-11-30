@@ -1,0 +1,24 @@
+# rPPG Training Configuration
+
+# 数据路径 (仅 UBFC)
+data_paths:
+  - 'data/ubfc_processed.pt'
+
+# 訓練參數
+batch_size: 128  # A6000 可用大 batch size
+num_epochs: 50
+learning_rate: 0.001
+train_split: 0.8  # 80% 訓練, 20% 驗證
+
+# 模型參數
+window_size: 8
+
+# Early stopping
+early_stopping_patience: 5
+
+# 數據加載
+num_workers: 4
+seed: 42
+
+# 輸出
+output_dir: 'checkpoints'
