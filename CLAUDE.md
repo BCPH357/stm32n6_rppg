@@ -1,443 +1,617 @@
-# rPPG 心率檢測系統
+# rPPG 心率檢測系統 - LLM 開發快速上手指南
 
-**項目**: 遠端光電容積描記法 (Remote Photoplethysmography, rPPG) 心率檢測
-**目標**: 開發基於攝像頭的非接觸式心率檢測系統，並部署到 STM32N6 嵌入式平台
-**當前狀態**: ✅ Web 應用完成 | 🔄 6D→4D 模型轉換完成 | ⏳ STM32N6 部署準備中
-
----
-
-## 📋 快速導航
-
-- [項目概述](#項目概述)
-- [技術限制](#技術限制)
-- [工作方法](#工作方法)
-- [待辦事項](#待辦事項)
-- [參考資源](#參考資源)
+**目的**: 讓所有 LLM 一看就能立即進入開發狀態
+**架構**: Pattern A（Spatial CNN on NPU + Temporal Fusion on CPU）
+**當前狀態**: ✅ 模型拆分完成 | ✅ C 實現驗證 (PERFECT) | ⏳ STM32N6 部署準備中
 
 ---
 
-## 項目概述
+## 🎯 一分鐘快速理解
 
-### 核心功能
+### 這是什麼項目？
 
-本項目實現一個完整的 rPPG 心率檢測系統，包括：
+**遠端光電容積描記法 (rPPG)** - 用攝像頭非接觸式檢測心率
 
-1. **數據處理與訓練**（服務器端）
-   - UBFC-rPPG 數據集處理（42 subjects）
-   - Multi-ROI 特徵提取（前額、左右臉頰）
-   - 健壯的 PPG → HR 標籤計算（Bandpass + Peak Detection）
-   - 模型訓練（MAE: 4.65 BPM）
-
-2. **Web 應用**（即時心率監測）
-   - Flask + WebSocket 後端架構
-   - 攝像頭即時捕獲（30 fps）
-   - Haar Cascade 臉部檢測
-   - Multi-ROI 推論（~10 fps）
-   - 即時圖表顯示（Chart.js）
-
-3. **嵌入式部署**（STM32N6）
-   - 6D → 4D 模型轉換（符合 X-CUBE-AI 限制）
-   - INT8 量化（QDQ 格式，MAE 增加僅 +0.24 BPM）
-   - NPU 加速推論
-
-### 模型架構
-
-**Multi-ROI rPPG 模型**（~20K 參數）：
-
+**核心流程**:
 ```
-Input: (B, 8, 3, 36, 36, 3)
-  ↓ 6D 版本（訓練）
-[Shared CNN] 提取空間特徵
-  ↓
-[ROI Fusion] 融合 3 個區域
-  ↓
-[Temporal Conv1D] 時序建模
-  ↓
-[FC Layers] 預測心率
-  ↓
-Output: (B, 1) HR (BPM)
-
-Input: (B, 72, 36, 36)
-  ↓ 4D 版本（STM32 部署）
-[Reshape to 6D] → 使用相同權重 → 輸出相同結果
+Camera → Face Detection → 3 ROIs (前額、左右臉頰)
+  → Spatial CNN (NPU, INT8) × 24 次
+  → Temporal Fusion (CPU, FP32)
+  → Heart Rate (BPM)
 ```
 
-**關鍵特性**：
-- ✅ Shared CNN：所有 ROI 共享權重（減少參數）
-- ✅ 輕量級：僅 20K 參數（遠低於 500K 目標）
-- ✅ 時間建模：Conv1D 捕捉心率時序依賴
-- ✅ 雙版本：6D（訓練/Web）+ 4D（STM32）權重一致
-
-### ROI 提取邏輯
-
-| ROI | 位置（相對臉部框） | 顏色標記 |
-|-----|-------------------|---------|
-| **Forehead** | x: [0.20w, 0.80w]<br>y: [0.05h, 0.25h] | 紅色 |
-| **Left Cheek** | x: [0.05w, 0.30w]<br>y: [0.35h, 0.65h] | 藍色 |
-| **Right Cheek** | x: [0.70w, 0.95w]<br>y: [0.35h, 0.65h] | 橙色 |
-
-**處理流程**：
-1. Haar Cascade 檢測臉部 bbox
-2. 計算 3 個 ROI 坐標
-3. 裁切並調整到 36×36
-4. 歸一化到 [0, 1]
-5. 堆疊為 `(3, 36, 36, 3)`
+**參數量**: 僅 20K (9,840 + 10,353)
+**精度**: MAE 4.65 BPM (訓練), ~5.0 BPM (量化後)
+**部署目標**: STM32N6 (NPU + CPU)
 
 ---
 
-## 技術限制
+## 📂 項目結構（重構後）
 
-### STM32N6 & X-CUBE-AI 限制
-
-#### 1. X-CUBE-AI 輸入維度限制
-
-**核心問題**：X-CUBE-AI 只支持最多 **4D 張量**
-
-**證據**（`ai_platform.h:462-469`）：
-```c
-#define AI_BUFFER_OBJ_INIT(format_, h_, w_, ch_, n_batches_, data_) \
-{ \
-  .shape = AI_BUFFER_SHAPE_INIT(AI_SHAPE_BCWH, 4, (n_batches_), (ch_), (w_), (h_)), \
-}
+```
+rppg/
+├── 1_preprocessing/          # 數據前處理（UBFC-rPPG 數據集）
+├── 2_training/               # 模型訓練（UltraLightRPPG）
+├── 3_model_conversion/       # 模型拆分（Spatial + Temporal）
+├── 4_quantization/           # 量化
+│   ├── spatial_cnn/          # TFLite INT8 量化（NPU）
+│   └── temporal_fusion/      # C 權重導出（CPU）
+├── 5_validation/             # 精度驗證
+├── stm32_rppg/               # STM32N6 部署項目
+│   ├── temporal_fusion/      # C 實現（~300 行）
+│   ├── preprocessing/        # ROI 提取代碼範例
+│   ├── postprocessing/       # 濾波、顯示代碼範例
+│   └── docs/                 # 部署文檔
+├── webapp/                   # Web 即時心率監測
+└── models/                   # 共享模型文件
 ```
 
-**影響**：
-- 原始 6D 輸入 `(B, 8, 3, 36, 36, 3)` 無法直接導入
-- STM32CubeMX 報錯：`INTERNAL ERROR: Unexpected combination of configuration and input shape`
-
-**解決方案**：
-- 創建 4D 版本模型：`(B, 72, 36, 36)` 其中 72 = 8×3×3（T×ROI×C）
-- 4D 模型內部 reshape 回 6D 處理
-- 權重完全共享（輸出差異 < 1e-5）
-
-#### 2. 優化級別限制（基於 Zero-DCE 教訓）
-
-**避免使用 Balanced (O3)**：
-- ❌ 導致激進內存重用
-- ❌ 緩衝區重疊（輸入/輸出相同地址）
-- ❌ 推論第一次調用就返回 `LL_ATON_RT_ERROR`
-- ❌ 所有手動修改 `network_*.c` 嘗試均失敗
-
-**推薦配置**：
-- ✅ Time (O2) 或 Default (O1)
-- ✅ Memory Pools 設為 Auto（不手動修改）
-- ✅ 信任 X-CUBE-AI 自動分配
-
-#### 3. 量化限制
-
-**Post-Training Quantization (PTQ)**：
-- 需要校準數據（使用真實訓練數據，非隨機數據）
-- 必須使用分層採樣（確保各 HR 範圍都有代表）
-- QDQ 格式 + Per-channel 量化效果最佳
-- 預期精度損失：MAE +0.5~1.5 BPM
-
-**實際結果**（4D 模型量化）：
-- MAE 增加：僅 **+0.24 BPM**（EXCELLENT）
-- 模型大小：80 KB → 20 KB（4x 壓縮）
-
-### Web 應用限制
-
-**環境要求**：
-- 光線充足（避免逆光、暗光）
-- 臉部正對攝像頭（±15° 偏轉可接受）
-- 保持相對靜止（輕微點頭 OK）
-- 建議距離：50-100 cm
-
-**已知問題**：
-- Haar Cascade 對側臉、遮擋敏感
-- 需要 8 幀才能開始推論（~0.8 秒延遲）
-- 深色皮膚可能影響 BVP 信噪比
+**關鍵原則**: 1→2→3→4→5 順序清晰，每個階段獨立可驗證
 
 ---
 
-## 工作方法
+## 🏗️ Pattern A 架構（當前方案）
 
-### 服務器端訓練流程
+### 為什麼採用 Pattern A？
 
-**服務器信息**：
-- 路徑：`/mnt/data_8T/ChenPinHao/server_training/`
-- 連接：`ssh miat@140.115.53.67`
-- 環境：`conda activate rppg_training`
+#### ❌ 之前方案（統一模型）的問題：
 
-#### 完整流程
+```
+Input (B, 72, 36, 36)
+  → Shared CNN → ROI Fusion → Temporal Conv1D → Output
+                 ↑ 整個模型需 INT8 量化
+```
+
+**問題**:
+1. **精度損失嚴重**: Temporal 時序特徵對量化敏感，預期退化 +2-5 BPM
+2. **TFLite 轉換困難**: Temporal Conv1D 可能不兼容
+3. **調試困難**: 單一故障點，無法分別驗證
+
+#### ✅ Pattern A 方案（拆分模型）：
+
+```
+┌────────────────────────────────────────┐
+│ Camera (640×480 RGB)                   │
+└─────────────┬──────────────────────────┘
+              ↓
+┌────────────────────────────────────────┐
+│ ROI Extraction (3 × 36×36 patches)    │
+└─────────────┬──────────────────────────┘
+              ↓
+┌────────────────────────────────────────┐
+│ NPU: Spatial CNN (INT8 TFLite)        │
+│ - 推論 24 次 (8 frames × 3 ROIs)      │
+│ - 輸出: (24, 16) FP32 特徵矩陣         │
+└─────────────┬──────────────────────────┘
+              ↓
+┌────────────────────────────────────────┐
+│ CPU: Temporal Fusion (Pure C, FP32)   │
+│ - Conv1D + FC Layers                  │
+│ - 輸出: Heart Rate (30-180 BPM)       │
+└────────────────────────────────────────┘
+```
+
+**優勢**:
+- ✅ **精度**: Spatial INT8 + Temporal FP32，預期退化 < 1.0 BPM
+- ✅ **轉換穩定**: Spatial 簡單 CNN → TFLite 穩定；Temporal 直接 C 導出
+- ✅ **獨立驗證**: 可分別測試 NPU 和 CPU 模組
+- ✅ **靈活**: 可獨立優化兩個模組
+
+---
+
+## 🔑 核心概念
+
+### 1. Multi-ROI 策略
+
+**3 個 ROI 區域**（相對臉部檢測框）：
+
+| ROI | 位置 | 原因 |
+|-----|------|------|
+| **Forehead** | x: [0.20w, 0.80w]<br>y: [0.05h, 0.25h] | 血管密集，BVP 信號強 |
+| **Left Cheek** | x: [0.05w, 0.30w]<br>y: [0.35h, 0.65h] | 補充信息，防遮擋 |
+| **Right Cheek** | x: [0.70w, 0.95w]<br>y: [0.35h, 0.65h] | 補充信息，防遮擋 |
+
+**為什麼 3 個 ROI？**
+- 單 ROI 易受遮擋、光照影響
+- 多 ROI 融合提高魯棒性
+- Shared CNN 降低參數（不是 3 倍增加）
+
+### 2. Spatial CNN (9,840 params)
+
+**功能**: 提取單個 ROI 的空間特徵
+
+**架構**:
+```python
+Input: (B, 3, 36, 36)  # 單個 ROI (RGB)
+  ↓ Conv2D (16 filters, 3×3) + ReLU + MaxPool
+  ↓ Conv2D (32 filters, 3×3) + ReLU + MaxPool
+  ↓ Conv2D (64 filters, 3×3) + ReLU + MaxPool
+  ↓ AdaptiveAvgPool → (B, 64, 4, 4)
+  ↓ Flatten + FC → (B, 16)
+Output: (B, 16)  # 空間特徵向量
+```
+
+**部署**: NPU (INT8 TFLite)
+**文件**: `models/spatial_cnn_int8.tflite` (~20 KB)
+
+### 3. Temporal Fusion (10,353 params)
+
+**功能**: 融合時序特徵並預測心率
+
+**架構**:
+```python
+Input: (B, 24, 16)  # 24 = 8 時間步 × 3 ROIs
+  ↓ Conv1D (32 filters, kernel=3) + ReLU
+  ↓ Conv1D (16 filters, kernel=3) + ReLU
+  ↓ Flatten
+  ↓ FC (64) → FC (32) → FC (16) → FC (1)
+Output: (B, 1)  # Heart Rate (BPM)
+```
+
+**部署**: CPU (純 C 實現, FP32)
+**文件**: `stm32_rppg/temporal_fusion/temporal_fusion_weights_exported.c` (~200 KB)
+
+---
+
+## 🚀 快速開始（針對不同任務）
+
+### 任務 1: 我需要訓練新模型
 
 ```bash
-# Step 1: 連接服務器
-ssh miat@140.115.53.67
+# 服務器端（miat@140.115.53.67）
 cd /mnt/data_8T/ChenPinHao/server_training/
 
-# Step 2: 數據預處理（首次運行或數據變更時）
+# 1. 數據預處理（首次或數據更新時）
 conda activate rppg_training
 python preprocess_data.py --dataset ubfc --raw_data raw_data --output data
 
-# Step 3: 驗證數據
+# 2. 驗證數據
 python validate_data.py --mode preprocessed
+# 預期: Min 40-50, Max 120-150, Mean 70-90, Std 8-15
 
-# Step 4: 訓練模型（6D 版本）
-bash run_training.sh
-# 或後台運行（防止斷線）
+# 3. 訓練（後台）
 nohup python train.py --config config.yaml > logs/training.log 2>&1 &
 
-# Step 5: 監控訓練
+# 4. 監控
 tail -f logs/training.log
+# 目標: MAE < 5 BPM, RMSE < 8 BPM
 ```
 
-#### 從服務器下載模型
+**參考**: `2_training/README.md`
+
+### 任務 2: 我需要拆分並量化模型
 
 ```bash
-# 下載訓練好的模型到本地
-scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/checkpoints/best_model.pth D:\MIAT\rppg\webapp\models\
-```
-
-### 本地量化與轉換流程
-
-#### 1. 6D → 4D 模型轉換
-
-```bash
-# Step 1: 上傳轉換腳本到服務器
-scp "D:\MIAT\rppg\server_training\convert_to_4d_for_stm32.py" miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/
-
-# Step 2: 在服務器上執行轉換
-ssh miat@140.115.53.67
+# 服務器端
 cd /mnt/data_8T/ChenPinHao/server_training/
-conda activate rppg_training
-python convert_to_4d_for_stm32.py
 
-# Step 3: 下載 4D ONNX 模型到本地
-scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/models/rppg_4d_fp32.onnx D:\MIAT\rppg\quantization\models\
+# Step 1: 模型拆分（從 best_model.pth）
+python migrate_weights.py
+# 輸出: spatial_cnn.pth, temporal_fusion.pth
+# 驗證: 差異 < 1e-5
+
+# Step 2: Spatial CNN 量化（TFLite INT8）
+python export_tflite_split_v2.py
+# 輸出: models/spatial_cnn_int8.tflite
+
+# Step 3: Temporal Fusion 權重導出（C 陣列）
+python export_temporal_fusion_weights.py
+# 輸出: stm32_rppg/temporal_fusion/temporal_fusion_weights_exported.c
+
+# Step 4: 驗證 C 實現
+python validate_c_vs_pytorch.py
+# 預期: 差異 < 1e-5 (PERFECT)
 ```
 
-**輸出**：
-- `models/rppg_4d_fp32.onnx`（FP32 版本，用於量化）
-- `models/rppg_4d_fp32.pth`（PyTorch 檢查點，可選）
+**參考**:
+- `3_model_conversion/README.md`
+- `4_quantization/spatial_cnn/README.md`
+- `4_quantization/temporal_fusion/README.md`
 
-#### 2. INT8 量化
+### 任務 3: 我需要部署到 STM32N6
 
 ```bash
-# Step 1: 上傳量化腳本到服務器
-scp "D:\MIAT\rppg\server_training\quantize_4d_model_v2.py" miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/
-
-# Step 2: 在服務器上執行量化（需要校準數據）
-ssh miat@140.115.53.67
-cd /mnt/data_8T/ChenPinHao/server_training/
-conda activate rppg_training
-python quantize_4d_model_v2.py
-
-# Step 3: 驗證量化精度
-python evaluate_quantized_model.py
-
-# Step 4: 下載 INT8 ONNX 模型到本地
-scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/models/rppg_4d_int8_qdq.onnx D:\MIAT\rppg\quantization\models\
+# 準備文件（從服務器下載）
+scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/models/spatial_cnn_int8.tflite D:\MIAT\rppg\models\
+scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/stm32_rppg/temporal_fusion/temporal_fusion_weights_exported.c D:\MIAT\rppg\stm32_rppg\temporal_fusion\
 ```
 
-**輸出**：
-- `models/rppg_4d_int8_qdq.onnx`（INT8 量化版本，用於 STM32）
-- 驗證報告（MAE, RMSE, MAPE, R²）
+**STM32CubeMX 配置**:
+1. 導入模型: `spatial_cnn_int8.tflite`
+2. 驗證形狀: Input `(1, 3, 36, 36)` int8, Output `(1, 16)` float32
+3. 配置:
+   - Optimization: **Time (O2)** 或 **Default (O1)** ❗ **避免 O3**
+   - Runtime: Neural-ART (NPU)
+   - Memory Pools: Auto
+4. Generate Code
 
-### Web 應用部署流程
+**集成 Temporal Fusion**:
+```c
+// 複製到 STM32 項目
+Core/Inc/temporal_fusion.h
+Core/Src/temporal_fusion.c
+Core/Src/temporal_fusion_weights_exported.c
+```
+
+**主循環邏輯**:
+```c
+while (1) {
+    // 1. 捕獲 8 幀影像（攝像頭）
+    // 2. 臉部檢測（Haar Cascade 或簡化）
+    // 3. 提取 3 個 ROI（每個 36×36×3）
+    // 4. Spatial CNN 推論 × 24 次（NPU）
+    //    → 累積到 features[24][16] (FP32)
+    // 5. Temporal Fusion 推論（CPU）
+    //    → output: heart_rate (BPM)
+    // 6. 後處理（濾波、顯示）
+}
+```
+
+**參考**:
+- `stm32_rppg/README.md` - 快速開始
+- `stm32_rppg/docs/deployment_guide.md` - 完整流程
+- `stm32_rppg/docs/cubemx_config.md` - CubeMX 詳細配置
+- `stm32_rppg/preprocessing/preprocessing_code.c` - ROI 提取範例
+- `stm32_rppg/postprocessing/postprocessing_code.c` - 後處理範例
+
+### 任務 4: 我需要運行 Web 應用
 
 ```bash
-# Step 1: 確保模型存在
 cd D:\MIAT\rppg\webapp
-copy ..\server_training\checkpoints\best_model.pth models\best_model.pth
 
-# Step 2: 安裝依賴
-install.bat
+# 安裝依賴（首次）
+pip install -r requirements.txt
 
-# Step 3: 啟動服務器
-start.bat
+# 啟動服務器
+python app.py
 
-# Step 4: 訪問應用
-# 瀏覽器打開 http://localhost:5000
+# 訪問
+# http://localhost:5000
 ```
 
-### STM32N6 部署流程
+**功能**:
+- 即時攝像頭捕獲（30 fps）
+- Haar Cascade 臉部檢測
+- 3 ROI 即時可視化
+- 心率推論（~10 fps）
+- BVP 波形和心率趨勢圖
 
-詳細文檔：`DEPLOY_4D_TO_STM32.md`
+**參考**: `webapp/README.md`
 
-#### 快速步驟
+---
 
+## ⚠️ 關鍵注意事項（基於血淚教訓）
+
+### 1. ❌ 絕對不要用 O3 優化（STM32CubeMX）
+
+**教訓來源**: Zero-DCE 部署失敗經驗（詳見 `D:\MIAT\CLAUDE.md`）
+
+**問題**:
+- Balanced (O3) 導致激進內存重用
+- 緩衝區重疊（輸入/輸出相同地址）
+- 推論第一次調用就返回 `LL_ATON_RT_ERROR`
+- 所有手動修改 `network_*.c` 嘗試均失敗
+
+**正確做法**:
+- ✅ 使用 **Time (O2)** 或 **Default (O1)**
+- ✅ Memory Pools 設為 **Auto**
+- ✅ 信任 X-CUBE-AI 自動分配，不手動修改
+
+### 2. ❌ 不要跳過分層採樣（量化校準）
+
+**錯誤示例**:
+```python
+# ❌ 隨機數據校準
+calibration_data = np.random.randn(100, 3, 36, 36)
+```
+
+**正確做法**:
+```python
+# ✅ 使用真實訓練數據 + 分層採樣
+data = torch.load('data/ubfc_processed.pt')
+labels = data['labels']
+hr_bins = np.digitize(labels, bins=[40, 60, 80, 100, 120, 160])
+
+for bin_id in range(1, 7):
+    bin_indices = np.where(hr_bins == bin_id)[0]
+    selected = np.random.choice(bin_indices, 35, replace=False)
+    # 每個心率範圍都有代表
+```
+
+**結果對比**:
+- 隨機數據: MAE +3.20 BPM, R² -0.37 (FAIR)
+- 分層採樣: MAE +0.24 BPM, R² -0.03 (EXCELLENT)
+
+### 3. ❌ 不要手動修改 `network_*.c`
+
+**問題**:
+- 自動生成文件，每次重新生成會被覆蓋
+- 手動修改緩衝區地址無效（NPU DMA 不認）
+
+**正確做法**:
+- ✅ 在 STM32CubeMX 配置層面解決問題
+- ✅ 使用腳本自動化修改（如必須）
+- ✅ 保留修改腳本以便重新生成後重新應用
+
+### 4. ❌ 不要用 ONNX → TFLite（對於複雜模型）
+
+**問題**:
+- Temporal Conv1D 可能不兼容
+- 轉換鏈過長，容易出錯
+
+**正確做法**:
+- ✅ PyTorch → **Keras** → TFLite（Spatial CNN）
+- ✅ PyTorch → **純 C 導出**（Temporal Fusion）
+- ✅ 避免依賴 ONNX 中間格式
+
+---
+
+## 📊 性能指標（預期）
+
+### 訓練階段
+
+| 指標 | 訓練集 | 驗證集 |
+|------|--------|--------|
+| MAE (BPM) | ~3.5 | ~4.65 |
+| RMSE (BPM) | ~5.0 | ~6.63 |
+| MAPE (%) | ~3.5 | ~4.2 |
+| R² | ~0.90 | ~0.86 |
+
+### 量化階段
+
+| 模型 | MAE | 退化 | 質量 |
+|------|-----|------|------|
+| FP32 Original | 4.65 BPM | - | - |
+| Spatial INT8 (僅) | ~4.80 BPM | +0.15 BPM | EXCELLENT |
+| **Total (Spatial INT8 + Temporal FP32)** | **~4.85 BPM** | **+0.20 BPM** | **EXCELLENT** ✅ |
+
+**對比**: 如果全 INT8 量化，預期退化 +2-5 BPM (FAIR/POOR)
+
+### STM32N6 部署（預期）
+
+| 指標 | 數值 |
+|------|------|
+| Spatial CNN 推論 | ~20 ms/次（NPU） |
+| Temporal Fusion 推論 | ~5 ms（CPU） |
+| 總延遲（包含 8 幀捕獲） | ~500 ms |
+| 幀率（心率更新頻率） | ~2 Hz |
+| 內存占用 | < 200 KB SRAM |
+
+---
+
+## 🗂️ 檔案位置速查
+
+### 服務器端（訓練與量化）
+
+**路徑**: `/mnt/data_8T/ChenPinHao/server_training/`
+
+```
+server_training/
+├── data/ubfc_processed.pt          # 預處理數據（~500 MB）
+├── checkpoints/best_model.pth      # 訓練最佳模型（~80 KB）
+├── models/
+│   ├── spatial_cnn_int8.tflite     # Spatial CNN INT8（~20 KB）
+│   └── spatial_cnn.pth              # Spatial CNN FP32
+└── temporal_fusion.pth              # Temporal Fusion FP32
+```
+
+### 本地端（開發與部署）
+
+**路徑**: `D:\MIAT\rppg\`
+
+```
+rppg/
+├── models/
+│   └── spatial_cnn_int8.tflite     # 從服務器下載
+├── stm32_rppg/temporal_fusion/
+│   ├── temporal_fusion.h
+│   ├── temporal_fusion.c
+│   └── temporal_fusion_weights_exported.c  # 從服務器下載
+├── webapp/models/
+│   └── best_model.pth              # Web 用 6D 模型
+└── 1_preprocessing/data/
+    └── ubfc_processed.pt           # 可選（本地驗證用）
+```
+
+---
+
+## 🛠️ 常見問題排查
+
+### Q1: 訓練不收斂（Loss > 100）
+
+**可能原因**:
+1. 標籤計算錯誤（PPG → HR）
+2. 學習率過高
+3. 數據分布異常
+
+**檢查步驟**:
 ```bash
-# Step 1: 準備 INT8 ONNX 模型
-# 確保 D:\MIAT\rppg\quantization\models\rppg_4d_int8_qdq.onnx 存在
-
-# Step 2: 在 STM32CubeMX 中導入模型
-# - 打開 STM32CubeMX
-# - 啟用 X-CUBE-AI
-# - Import ONNX: rppg_4d_int8_qdq.onnx
-# - 驗證輸入形狀：(1, 72, 36, 36) int8
-# - 驗證輸出形狀：(1, 1) float32
-
-# Step 3: 配置 X-CUBE-AI
-# - Optimization: Time (O2) 或 Default (O1)  ← 避免 O3！
-# - Runtime: Neural-ART (NPU)
-# - Memory Pools: Auto
-# - Analyze Model
-
-# Step 4: 生成代碼
-# - Generate Code
-# - 檢查生成的 network_rppg.c
-
-# Step 5: 編寫應用層代碼
-# - 參考 DEPLOY_4D_TO_STM32.md 中的 preprocessing/postprocessing
-# - ROI 提取（攝像頭 → 3 個 36×36 patches）
-# - INT8 轉換（[0,255] → [-128,127]）
-# - 推論調用
-# - 輸出後處理（濾波、顯示）
-
-# Step 6: 編譯與測試
-# - Build Project
-# - Flash to STM32N6
-# - 驗證推論結果
+python validate_data.py --mode preprocessed
+# 檢查標籤分布:
+#   Min: 40-50 BPM
+#   Max: 120-150 BPM
+#   Mean: 70-90 BPM
+#   Std: 8-15 BPM
 ```
 
-#### 關鍵配置提醒
+**解決方案**:
+- 如果標籤異常 → 檢查 `preprocess_data.py` 中的 bandpass filter 和 peak detection
+- 如果標籤正常 → 降低學習率（1e-3 → 1e-4）
 
-**X-CUBE-AI 配置**：
-- ✅ Optimization: O1 或 O2（不要 O3）
-- ✅ Runtime: Neural-ART
-- ✅ Input Data Type: int8
-- ✅ Output Data Type: float32
-- ✅ Memory Pools: Auto
+### Q2: 量化後精度下降嚴重（MAE +5 BPM）
 
-**常見問題排查**：
-- 參考 `stm32n6_deployment/troubleshooting.md`
-- 基於 Zero-DCE 失敗經驗整理
+**可能原因**:
+1. 校準數據不正確（隨機數據或分布不均）
+2. 量化配置錯誤
 
----
+**檢查步驟**:
+```python
+# 確認校準數據分布
+print("Calibration HR distribution:")
+print(f"  Min: {calibration_labels.min()}")
+print(f"  Max: {calibration_labels.max()}")
+print(f"  Mean: {calibration_labels.mean()}")
+# 應該涵蓋 40-160 BPM
+```
 
-## 待辦事項
+**解決方案**:
+- 使用 `4_quantization/spatial_cnn/export_tflite_split_v2.py` 中的分層採樣
+- 確保 QDQ 格式 + Per-channel 量化
 
-### 立即執行（服務器端）
+### Q3: STM32CubeMX 導入失敗（INTERNAL ERROR）
 
-- [ ] **監控預處理進度**
-  ```bash
-  cd /mnt/data_8T/ChenPinHao/server_training/
-  ls -lh data/ubfc_processed.pt
-  ```
+**錯誤信息**:
+```
+INTERNAL ERROR: Unexpected combination of configuration and input shape
+```
 
-- [ ] **驗證預處理數據**
-  ```bash
-  python validate_data.py --mode preprocessed
-  # 檢查標籤分布：Min 40-50, Max 120-150, Mean 70-90, Std 8-15
-  ```
+**原因**: 模型輸入不是 4D 或使用了不支持的 op
 
-- [ ] **開始訓練（如有新數據）**
-  ```bash
-  bash start_training_background.sh
-  # 目標：MAE < 5 BPM, RMSE < 8 BPM
-  ```
+**解決方案**:
+1. 確認使用 `spatial_cnn_int8.tflite`（不是 6D/4D 統一模型）
+2. 驗證輸入形狀: `(1, 3, 36, 36)` int8
+3. 使用 Netron 檢查模型結構（無不支持 op）
 
-### 訓練完成後
+### Q4: NPU 推論返回 ERROR (ret=0)
 
-- [ ] **評估模型性能**
-  - 檢查訓練日誌（MAE, RMSE, MAPE）
-  - 與之前版本比較
-  - 確認收斂情況
+**症狀**:
+```c
+LL_ATON_RT_RunEpochBlock() 第一次調用返回 0
+```
 
-- [ ] **6D → 4D 模型轉換**
-  ```bash
-  # 服務器端執行
-  python convert_to_4d_for_stm32.py
-  # 驗證輸出差異 < 1e-5
-  ```
+**90% 可能原因**: 使用了 O3 優化
 
-- [ ] **INT8 量化**
-  ```bash
-  # 服務器端執行
-  python quantize_4d_model_v2.py
-  python evaluate_quantized_model.py
-  # 目標：MAE 增加 < 1.5 BPM（Quality: EXCELLENT/GOOD）
-  ```
+**解決方案**:
+1. STM32CubeMX → X-CUBE-AI → Optimization: 改為 **O2** 或 **O1**
+2. 重新 Analyze + Generate Code
+3. 重新編譯
 
-- [ ] **下載模型到本地**
-  ```bash
-  scp miat@140.115.53.67:/mnt/data_8T/ChenPinHao/server_training/models/rppg_4d_int8_qdq.onnx D:\MIAT\rppg\quantization\models\
-  ```
-
-### STM32N6 部署
-
-- [ ] **在 STM32CubeMX 中導入模型**
-  - 使用 `rppg_4d_int8_qdq.onnx`
-  - 驗證輸入形狀：`(1, 72, 36, 36)` int8
-  - Analyze 成功（無 ERROR）
-
-- [ ] **生成代碼並編譯**
-  - Optimization: O1 或 O2（避免 O3）
-  - Generate Code
-  - 編譯項目（無錯誤）
-
-- [ ] **實現應用層邏輯**
-  - ROI 提取代碼（攝像頭捕獲 → 3 個 ROI）
-  - INT8 預處理（歸一化 + 量化）
-  - 推論調用（`LL_ATON_RT_RunEpochBlock`）
-  - 後處理（濾波、顯示）
-
-- [ ] **驗證推論結果**
-  - 使用已知測試影片
-  - 對比 Python 推論結果
-  - 確認準確度（MAE < 10 BPM）
-
-### 可選優化
-
-- [ ] **ROI 參數調優**
-  - 實驗不同 ROI 比例和位置
-  - 可視化不同光照條件下的效果
-
-- [ ] **數據增強**
-  - ROI 位置隨機抖動
-  - 光照變化模擬
-  - 運動模糊增強
-
-- [ ] **融合策略優化**
-  - 嘗試 attention-based fusion（學習 ROI 權重）
-  - 實驗不同融合方式（加權平均、LSTM）
-
-- [ ] **Web 應用增強**
-  - 增強 ROI 檢測（MediaPipe Face Mesh）
-  - 信號質量指示器（SNR 計算）
-  - 歷史記錄導出（CSV/JSON）
+**參考**: `stm32_rppg/docs/troubleshooting.md`
 
 ---
 
-## 參考資源
+## 📚 參考文檔
 
 ### 項目文檔
 
-- **`DEVELOPMENT_LOG.md`** - 完整開發歷史（2025-01-14 至今）
-- **`DEPLOY_4D_TO_STM32.md`** - 4D 模型部署指南
-- **`stm32n6_deployment/`** - STM32 部署完整文檔
-  - `deployment_guide.md` - 完整流程
-  - `cubemx_config.md` - CubeMX 配置
-  - `troubleshooting.md` - 故障排除
-  - `preprocessing_code.c` / `postprocessing_code.c` - 代碼範例
+| 文檔 | 說明 |
+|------|------|
+| `README.md` | 項目主頁（繁體中文） |
+| `DEVELOPMENT_LOG.md` | 完整開發歷史（9 個 Phase） |
+| `CLAUDE.md` | **本文件** - LLM 快速上手 |
 
-### 論文與數據集
+### 階段文檔（繁體中文）
 
-- **ME-rPPG**: https://arxiv.org/abs/2504.01774
-- **UBFC-rPPG 數據集**: https://sites.google.com/view/ybenezeth/ubfcrppg
-- **PURE 數據集**: https://www.tu-ilmenau.de/neurob/data-sets-code/pulse-rate-detection-dataset-pure
+| 階段 | 文檔 | 說明 |
+|------|------|------|
+| 1 | `1_preprocessing/README.md` | 數據下載、ROI 提取、標籤計算 |
+| 2 | `2_training/README.md` | 模型訓練、超參數、指標 |
+| 3 | `3_model_conversion/README.md` | 模型拆分、權重遷移 |
+| 4 | `4_quantization/spatial_cnn/README.md` | Spatial CNN TFLite 量化 |
+| 4 | `4_quantization/temporal_fusion/README.md` | Temporal Fusion C 導出 |
+| 5 | `5_validation/README.md` | 精度驗證、ROI 測試 |
 
-### STM32 技術資源
+### STM32 部署文檔
+
+| 文檔 | 說明 |
+|------|------|
+| `stm32_rppg/README.md` | 快速開始指南 |
+| `stm32_rppg/docs/deployment_guide.md` | 完整部署流程 |
+| `stm32_rppg/docs/cubemx_config.md` | STM32CubeMX 詳細配置 |
+| `stm32_rppg/docs/troubleshooting.md` | 常見問題排查（含 Zero-DCE 教訓） |
+
+### 外部資源
 
 - **X-CUBE-AI 官方文檔**: https://www.st.com/en/embedded-software/x-cube-ai.html
 - **STM32N6 產品頁**: https://www.st.com/stm32n6
-- **Neural-ART Runtime**: https://wiki.st.com/stm32mcu/wiki/AI:X-CUBE-AI
-
-### 相關項目經驗
-
-- **Zero-DCE 部署失敗經驗**（`D:\MIAT\CLAUDE.md`）
-  - 關鍵教訓：避免 O3 優化，信任工具自動配置
-  - 不要手動修改生成的 `network_*.c` 代碼
+- **UBFC-rPPG 數據集**: https://sites.google.com/view/ybenezeth/ubfcrppg
+- **ME-rPPG 論文**: https://arxiv.org/abs/2504.01774
 
 ---
 
-**文檔版本**: 3.0 (Refactored)
-**創建日期**: 2025-01-14
-**最後更新**: 2025-01-26
+## 🎯 LLM 任務指引
+
+### 當用戶說："我要訓練模型"
+
+1. 確認服務器連接: `ssh miat@140.115.53.67`
+2. 導航到: `cd /mnt/data_8T/ChenPinHao/server_training/`
+3. 檢查數據: `ls -lh data/ubfc_processed.pt`
+4. 參考: `2_training/README.md`
+5. 執行訓練或監控進度
+
+### 當用戶說："模型精度不好"
+
+1. 檢查訓練 log（MAE, RMSE）
+2. 驗證數據標籤分布（40-160 BPM）
+3. 檢查是否用了分層採樣（量化）
+4. 參考: `5_validation/README.md`
+
+### 當用戶說："STM32 推論失敗"
+
+1. **第一反應**: 檢查是否用了 O3 優化 ❗
+2. 檢查模型輸入形狀（應為 `(1, 3, 36, 36)` int8）
+3. 檢查 log 中的錯誤信息
+4. 參考: `stm32_rppg/docs/troubleshooting.md`
+
+### 當用戶說："量化精度下降太多"
+
+1. 確認用了真實數據校準（不是隨機數據）
+2. 確認分層採樣（涵蓋所有 HR 範圍）
+3. 確認 QDQ 格式 + Per-channel
+4. 參考: `4_quantization/spatial_cnn/README.md`
+
+### 當用戶說："我要修改模型結構"
+
+1. 修改: `2_training/model.py` 中的 `UltraLightRPPG` 類
+2. 重新訓練: `python train.py`
+3. 重新拆分: `python migrate_weights.py`
+4. 重新量化: `python export_tflite_split_v2.py`
+5. 驗證等價性: 每步都要檢查差異 < 1e-5
+
+---
+
+## ✅ 檢查清單（部署前）
+
+### 訓練階段
+
+- [ ] 數據預處理完成（`data/ubfc_processed.pt` 存在）
+- [ ] 標籤分布正常（Min 40-50, Max 120-150, Mean 70-90）
+- [ ] 訓練收斂（MAE < 5 BPM, RMSE < 8 BPM）
+- [ ] 驗證集精度良好（MAE < 6 BPM）
+
+### 模型拆分階段
+
+- [ ] 權重遷移完成（`spatial_cnn.pth`, `temporal_fusion.pth`）
+- [ ] 等價性驗證通過（差異 < 1e-5）
+
+### 量化階段
+
+- [ ] Spatial CNN TFLite 生成（`spatial_cnn_int8.tflite`）
+- [ ] 校準數據使用真實數據 + 分層採樣
+- [ ] 量化精度驗證（MAE 增加 < 1.5 BPM, EXCELLENT/GOOD）
+- [ ] Temporal Fusion C 權重導出（`temporal_fusion_weights_exported.c`）
+- [ ] C 實現驗證（差異 < 1e-5, PERFECT）
+
+### STM32N6 部署階段
+
+- [ ] STM32CubeMX 導入成功（無 ERROR）
+- [ ] 輸入形狀正確（`(1, 3, 36, 36)` int8）
+- [ ] 優化級別設為 **O2** 或 **O1**（❗ 不是 O3）
+- [ ] Memory Pools 設為 Auto
+- [ ] Temporal Fusion C 代碼集成
+- [ ] 應用層邏輯實現（ROI 提取 + 推論循環）
+- [ ] 編譯通過（無錯誤）
+- [ ] 推論成功（返回合理 HR 值）
+
+---
+
+**文檔版本**: 1.0
+**創建日期**: 2025-12-01
+**目的**: 讓所有 LLM 快速進入 rPPG 項目開發狀態
 **維護者**: Claude Code AI
 
-**變更記錄**:
-- v3.0 (2025-01-26): 重構為精簡版，移除歷史記錄到 DEVELOPMENT_LOG.md，增加 6D→4D 轉換方法
-- v2.0 (2025-01-20): 增加 Web 應用文檔，健壯的 PPG → HR 標籤計算
-- v1.0 (2025-01-14): 初始版本
+**使用建議**:
+- 📌 新 LLM session 先讀這份文件
+- 📌 遇到問題先查「常見問題排查」
+- 📌 執行任務前先看「任務指引」
+- 📌 部署前務必過一遍「檢查清單」
