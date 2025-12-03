@@ -39,7 +39,7 @@
  * --Ocache-opt = true
  * --output-info-file = "c_info"
  * --onnx-input = "C:/Users/user/.stm32cubemx/network_rppg_output/spatial_cnn_int8_OE_3_3_0.onnx"
- * --out-dir-prefix = "C:/Users/user/AppData/Local/Temp/mxAI_workspace2904057472917006759632287968748115/neural_art__network_rppg/"
+ * --out-dir-prefix = "C:/Users/user/AppData/Local/Temp/mxAI_workspace2796200371200016777237283886752072/neural_art__network_rppg/"
  * --network-name = "network_rppg"
  * --all-buffers-info = true
  * --mvei = true

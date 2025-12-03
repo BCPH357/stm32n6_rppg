@@ -476,9 +476,9 @@ extern "C" {
 #include "stm32n6xx_hal_wwdg.h"
 #endif /* HAL_WWDG_MODULE_ENABLED */
 
-#ifdef HAL_XSPI_MODULE_ENABLED
+#define HAL_XSPI_MODULE_ENABLED
 #include "stm32n6xx_hal_xspi.h"
-#endif /* HAL_XSPI_MODULE_ENABLED */
+#define HAL_XSPI_MODULE_ENABLED
 
 /* Exported macros -----------------------------------------------------------*/
 #ifdef  USE_FULL_ASSERT

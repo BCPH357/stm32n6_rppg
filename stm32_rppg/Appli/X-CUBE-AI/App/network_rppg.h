@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    network_rppg.h
   * @author  STEdgeAI
-  * @date    2025-12-02 00:38:00
+  * @date    2025-12-02 18:10:31
   * @brief   Minimal description of the generated c-implemention of the network
   ******************************************************************************
   * @attention

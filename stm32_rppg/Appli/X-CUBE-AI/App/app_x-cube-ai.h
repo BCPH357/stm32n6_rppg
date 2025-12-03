@@ -25,6 +25,8 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "npu_cache.h"
 #include "ll_aton_runtime.h"
+#include "stm32n6570_discovery_xspi.h"
+#include "stm32n6570_discovery_errno.h"
 
 void MX_X_CUBE_AI_Init(void);
 void MX_X_CUBE_AI_Process(void);

@@ -39,7 +39,7 @@ extern "C" {
 /*#define HAL_CRC_MODULE_ENABLED   */
 /*#define HAL_CRYP_MODULE_ENABLED   */
 /*#define HAL_DCMI_MODULE_ENABLED   */
-/*#define HAL_DCMIPP_MODULE_ENABLED   */
+#define HAL_DCMIPP_MODULE_ENABLED
 /*#define HAL_DMA2D_MODULE_ENABLED   */
 /*#define HAL_DTS_MODULE_ENABLED   */
 /*#define HAL_ETH_MODULE_ENABLED   */
@@ -49,7 +49,7 @@ extern "C" {
 /*#define HAL_GFXTIM_MODULE_ENABLED   */
 /*#define HAL_HASH_MODULE_ENABLED   */
 /*#define HAL_HCD_MODULE_ENABLED   */
-/*#define HAL_I2C_MODULE_ENABLED   */
+#define HAL_I2C_MODULE_ENABLED
 /*#define HAL_I2S_MODULE_ENABLED   */
 /*#define HAL_I3C_MODULE_ENABLED   */
 /*#define HAL_ICACHE_MODULE_ENABLED   */
@@ -57,7 +57,7 @@ extern "C" {
 /*#define HAL_IWDG_MODULE_ENABLED   */
 /*#define HAL_JPEG_MODULE_ENABLED   */
 /*#define HAL_LPTIM_MODULE_ENABLED   */
-/*#define HAL_LTDC_MODULE_ENABLED   */
+#define HAL_LTDC_MODULE_ENABLED
 /*#define HAL_MCE_MODULE_ENABLED   */
 /*#define HAL_MDF_MODULE_ENABLED   */
 /*#define HAL_MMC_MODULE_ENABLED   */
@@ -83,7 +83,7 @@ extern "C" {
 #define HAL_UART_MODULE_ENABLED
 /*#define HAL_USART_MODULE_ENABLED   */
 /*#define HAL_WWDG_MODULE_ENABLED   */
-/*#define HAL_XSPI_MODULE_ENABLED   */
+#define HAL_XSPI_MODULE_ENABLED
 #define HAL_CACHEAXI_MODULE_ENABLED
 /*#define HAL_MDIOS_MODULE_ENABLED   */
 /*#define HAL_GPU2D_MODULE_ENABLED   */
@@ -476,9 +476,9 @@ extern "C" {
 #include "stm32n6xx_hal_wwdg.h"
 #endif /* HAL_WWDG_MODULE_ENABLED */
 
-#ifdef HAL_XSPI_MODULE_ENABLED
+#define HAL_XSPI_MODULE_ENABLED
 #include "stm32n6xx_hal_xspi.h"
-#endif /* HAL_XSPI_MODULE_ENABLED */
+#define HAL_XSPI_MODULE_ENABLED
 
 /* Exported macros -----------------------------------------------------------*/
 #ifdef  USE_FULL_ASSERT
