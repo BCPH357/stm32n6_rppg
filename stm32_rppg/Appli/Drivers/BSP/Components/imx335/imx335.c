@@ -338,6 +338,11 @@ static int32_t IMX335_WriteTable(IMX335_Object_t *pObj, const struct regval *reg
   uint32_t index;
   int32_t ret = IMX335_OK;
 
+  printf("[IMX335_WriteTable] Writing %lu registers...\r\n", size);
+  if(size > 0) {
+    printf("[IMX335_WriteTable] First reg: addr=0x%04X, val=0x%02X\r\n", regs[0].addr, regs[0].val);
+  }
+
   /* Set registers */
   for(index=0; index<size ; index++)
   {
@@ -345,10 +350,23 @@ static int32_t IMX335_WriteTable(IMX335_Object_t *pObj, const struct regval *reg
     {
       if(imx335_write_reg(&pObj->Ctx, regs[index].addr, (uint8_t *)&(regs[index].val), 1) != IMX335_OK)
       {
+        printf("[IMX335_WriteTable] ERROR at index %lu: addr=0x%04X, val=0x%02X\r\n",
+               index, regs[index].addr, regs[index].val);
         ret = IMX335_ERROR;
       }
     }
   }
+
+  if(ret == IMX335_OK) {
+    if(size > 0) {
+      printf("[IMX335_WriteTable] Last reg: addr=0x%04X, val=0x%02X\r\n",
+             regs[size-1].addr, regs[size-1].val);
+    }
+    printf("[IMX335_WriteTable] All %lu registers written successfully\r\n", size);
+  } else {
+    printf("[IMX335_WriteTable] FAILED: stopped at index %lu/%lu\r\n", index, size);
+  }
+
   return ret;
 }
 
@@ -456,14 +474,24 @@ int32_t IMX335_Init(IMX335_Object_t *pObj, uint32_t Resolution, uint32_t PixelFo
   int32_t ret = IMX335_OK;
   uint8_t tmp;
 
+  printf("[IMX335_Init] Entry: Resolution=%lu, PixelFormat=%lu\r\n", Resolution, PixelFormat);
+  printf("[IMX335_Init] pObj->IsInitialized = %u\r\n", pObj->IsInitialized);
+
   if(pObj->IsInitialized == 0U)
   {
+    printf("[IMX335_Init] Starting initialization...\r\n");
     switch (Resolution)
     {
       case IMX335_R2592_1944:
+        printf("[IMX335_Init] Writing resolution regs (count=%u)...\r\n", ARRAY_SIZE(res_2592_1944_regs));
         if(IMX335_WriteTable(pObj, res_2592_1944_regs, ARRAY_SIZE(res_2592_1944_regs)) != IMX335_OK)
         {
+          printf("[IMX335_Init] ERROR: WriteTable failed for resolution regs\r\n");
           ret = IMX335_ERROR;
+        }
+        else
+        {
+          printf("[IMX335_Init] Resolution regs written successfully\r\n");
         }
         break;
       /* Add new resolution here */
@@ -474,27 +502,43 @@ int32_t IMX335_Init(IMX335_Object_t *pObj, uint32_t Resolution, uint32_t PixelFo
 
     if(!ret)
     {
+      printf("[IMX335_Init] Writing mode regs (count=%u)...\r\n", ARRAY_SIZE(mode_2l_10b_regs));
       if(IMX335_WriteTable(pObj, mode_2l_10b_regs, ARRAY_SIZE(mode_2l_10b_regs)) != IMX335_OK)
       {
+        printf("[IMX335_Init] ERROR: WriteTable failed for mode regs\r\n");
         ret = IMX335_ERROR;
       }
       else
       {
+        printf("[IMX335_Init] Mode regs written successfully\r\n");
         /* Start streaming */
         tmp = IMX335_MODE_STREAMING;
+        printf("[IMX335_Init] Writing MODE_SELECT reg (0x%04X) = 0x%02X...\r\n", IMX335_REG_MODE_SELECT, tmp);
         if(imx335_write_reg(&pObj->Ctx, IMX335_REG_MODE_SELECT, &tmp, 1) != IMX335_OK)
         {
+          printf("[IMX335_Init] ERROR: write_reg failed for MODE_SELECT\r\n");
           ret = IMX335_ERROR;
         }
         else
         {
+          printf("[IMX335_Init] MODE_SELECT written, delaying 20ms...\r\n");
           IMX335_Delay(pObj, 20);
           pObj->IsInitialized = 1U;
+          printf("[IMX335_Init] Initialization complete! IsInitialized=1\r\n");
         }
       }
     }
+    else
+    {
+      printf("[IMX335_Init] ERROR: ret=%ld after resolution config\r\n", ret);
+    }
+  }
+  else
+  {
+    printf("[IMX335_Init] Already initialized, skipping\r\n");
   }
 
+  printf("[IMX335_Init] Exit: ret=%ld\r\n", ret);
   return ret;
 }
 

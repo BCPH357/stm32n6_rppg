@@ -8,6 +8,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "camera_display.h"
 #include "main.h"
+#include "isp_api.h"
 #include <stdio.h>
 
 /* External variables --------------------------------------------------------*/
@@ -153,3 +154,6 @@ __weak void HAL_DCMIPP_PIPE_FrameEventCallback(DCMIPP_HandleTypeDef *hdcmipp, ui
         printf("[Camera] Frame %lu captured\r\n", frame_count);
     }
 }
+
+/* Note: HAL_DCMIPP_PIPE_VsyncEventCallback is implemented in BSP driver
+   (stm32n6570_discovery_camera.c) and handles ISP statistics gathering */
