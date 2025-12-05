@@ -605,8 +605,132 @@ LL_ATON_RT_RunEpochBlock() 第一次調用返回 0
 
 ---
 
-**文檔版本**: 1.0
+---
+
+## 🚨 STM32N6 Camera Display 重大問題發現 (2025-12-05)
+
+### 問題描述
+
+在 STM32N6570-DK 上部署 IMX335 camera display 時，發現 **IMX335_Init() 中寫入 MODE_SELECT = 0x00 (STREAMING) 會導致系統異常**。
+
+### 症狀
+
+```
+[IMX335_Init] Writing MODE_SELECT reg (0x3000) = 0x00...
+[IMX335_Init] MODE_SELECT written, delaying 20ms...
+=== AFTER MODE_SELECT ===
+start busy-wa                    ← UART 輸出被截斷
+(系統掛起)
+```
+
+**關鍵發現**：
+- UART printf 在某個隨機字符數被截斷（10-42 字符不等）
+- 加入 `HAL_Delay()` 無效
+- 立即寫回 STANDBY 也無效
+- **完全跳過 MODE_SELECT 寫入則正常**
+
+### 根本原因
+
+當 IMX335 收到 `MODE_SELECT = 0x00` 命令：
+1. **IMX335 立即啟動 MIPI CSI-2 輸出**
+2. **STM32N6 的 CSI 接收器檢測到信號**
+3. **但某些系統配置阻止了 CSI 正常運作**
+4. **導致系統異常**（可能是中斷風暴、DMA 錯誤、或資源隔離衝突）
+5. **UART 輸出被中斷**
+
+### 官方 vs 我們的專案對比
+
+| 項目 | 官方 (DCMIPP_ContinuousMode) | 我們 (rppg) | 結果 |
+|------|-------------------------------|-------------|------|
+| DCMIPP 配置 | ✅ 完全相同 | ✅ 完全相同（多了 downsize） | - |
+| IMX335_Init | ✅ **寫入 MODE_SELECT** | ❌ 寫入會崩潰 | **差異** |
+| SystemIsolation | ❌ 沒有 | ⚠️ **有調用** | **可疑** |
+| BSP_CAMERA_HwReset | ❌ 沒有單獨調用 | ⚠️ **有調用** | **可疑** |
+| LCD 初始化順序 | DCMIPP → IMX335 → LCD | **LCD → DCMIPP → IMX335** | **不同** |
+
+### 初始化順序對比
+
+**官方專案**：
+```
+1. DCMIPP_Init
+2. IMX335_Probe (含 MODE_SELECT) ← 正常
+3. LCD_Init
+4. ISP_Init
+5. DCMIPP_Start
+6. ISP_Start
+```
+
+**我們的專案**：
+```
+1. LTDC_Init (LCD)
+2. SystemIsolation_Config() ← ⚠️ 最可疑
+3. DCMIPP_Init
+4. BSP_CAMERA_HwReset() ← ⚠️ 官方沒有
+5. IMX335_Probe (含 MODE_SELECT) ← ❌ 崩潰
+6. ISP_Init ← 未執行到
+```
+
+### 最可能的原因 ⭐⭐⭐
+
+**SystemIsolation_Config() 配置的資源隔離機制阻止了 CSI PHY 的正常運作**
+
+當 IMX335 開始 streaming：
+- CSI PHY 產生中斷或 DMA 請求
+- 被 RIF (Resource Isolation Framework) 隔離機制阻擋
+- 導致系統異常
+
+### 驗證測試結果
+
+```c
+// 測試：完全跳過 MODE_SELECT 寫入
+printf("[IMX335_Init] SKIP MODE_SELECT - Testing without streaming...\r\n");
+// (不寫入 MODE_SELECT = 0x00)
+
+結果：✅ 所有 printf 完整輸出，系統正常
+```
+
+**結論**：問題確定與 MODE_SELECT 啟動 sensor streaming 直接相關。
+
+### 建議解決方案
+
+#### 方案 1：檢查 SystemIsolation_Config() ⭐⭐⭐ (優先)
+
+1. 臨時註解掉 `SystemIsolation_Config()`
+2. 測試是否能正常寫入 MODE_SELECT
+3. 如果可以，調整 RIF 配置以允許 CSI/DCMIPP 訪問
+
+#### 方案 2：移除 BSP_CAMERA_HwReset()
+
+官方專案沒有單獨調用，可能在其他地方已處理或不需要。
+
+#### 方案 3：調整初始化順序
+
+改成與官方相同：DCMIPP → IMX335 → LCD → ISP
+
+#### 方案 4：延遲 MODE_SELECT 寫入
+
+在 IMX335_Init() 中不寫入 MODE_SELECT，等所有系統準備好後再啟動 streaming。
+
+### 關鍵教訓
+
+1. ❌ **不要假設官方範例的每個步驟都可以隨意調整**
+2. ❌ **SystemIsolation_Config() 可能影響外設訪問權限**
+3. ❌ **初始化順序很重要，特別是涉及硬體信號的外設**
+4. ✅ **遇到問題時，對比官方專案的每個細節差異**
+5. ✅ **使用 printf 截斷位置來判斷系統異常發生時間點**
+
+### 下一步行動
+
+1. 檢查 `SystemIsolation_Config()` 具體實現
+2. 嘗試註解掉並測試
+3. 如果有效，調整 RIF 配置
+4. 確認正確的初始化順序
+
+---
+
+**文檔版本**: 1.1
 **創建日期**: 2025-12-01
+**最後更新**: 2025-12-05 - 添加 Camera Display 問題發現
 **目的**: 讓所有 LLM 快速進入 rPPG 項目開發狀態
 **維護者**: Claude Code AI
 
@@ -615,3 +739,4 @@ LL_ATON_RT_RunEpochBlock() 第一次調用返回 0
 - 📌 遇到問題先查「常見問題排查」
 - 📌 執行任務前先看「任務指引」
 - 📌 部署前務必過一遍「檢查清單」
+- 🚨 遇到 Camera Display 問題先看「重大問題發現」
