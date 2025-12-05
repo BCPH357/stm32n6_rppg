@@ -42,7 +42,7 @@
 /* USER CODE BEGIN PD */
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #define ENABLE_CAMERA_PIPELINE 1
-#define LTDC_ONLY_TEST 0
+
 
 /* USER CODE END PD */
 
@@ -129,31 +129,25 @@ int main(void)
   printf("========================================\r\n");
   printf("[Init] Basic peripherals initialized\r\n");
 
-  /* Initialize LTDC first (display will show framebuffer later) */
+  /* Initialize I2C1 first (may be needed for LCD controller configuration) */
+  MX_I2C1_App_Init(0x30C0EDFF);  // Use same fixed timing as old version
+  printf("[Init] I2C1 initialized\r\n");
+
+  /* Initialize LTDC (display will show framebuffer later) */
   MX_LTDC_Init();
   printf("[Init] LTDC initialized\r\n");
 
-#if LTDC_ONLY_TEST
-  printf("[LTDC TEST] FBStart from LayerCfg[0] = 0x%08lX\r\n",
-         (unsigned long)hltdc.LayerCfg[0].FBStartAdress);
-  printf("[LTDC TEST] BUFFER_ADDRESS = 0x%08X\r\n", BUFFER_ADDRESS);
+  /* Initialize X-CUBE-AI (enables AXISRAM clocks including AXISRAM3 for framebuffer!) */
+  MX_X_CUBE_AI_Init();
+  printf("[Init] X-CUBE-AI initialized (AXISRAM clocks enabled)\r\n");
 
-  /* Fill framebuffer with pure green (RGB565 0x07E0) */
-  uint16_t *fb = (uint16_t *)BUFFER_ADDRESS;
-  for (int y = 0; y < 480; ++y)
-  {
-    for (int x = 0; x < 800; ++x)
-    {
-      fb[y * 800 + x] = 0x07E0;
-    }
-  }
-  printf("[LTDC TEST] Framebuffer filled with green (RGB565)\r\n");
+  /* Configure system isolation (RIF for NPU, DCMIPP, LTDC, and GPIO attributes) */
+  SystemIsolation_Config();
+  printf("[Init] System Isolation configured (RIF + GPIO attributes)\r\n");
 
-  while (1)
-  {
-    /* LTDC-only test: no camera/ISP */
-  }
-#endif
+  /* Initialize camera display (sets up LTDC layer and enables display) */
+  CameraDisplay_Init();
+  printf("[Init] Camera display initialized (LTDC layer enabled)\r\n");
 
   /* --------------------------------------------------------------
    * CAMERA PIPELINE INITIALIZATION (OFFICIAL ORDER)
@@ -662,10 +656,10 @@ static void MX_RAMCFG_Init(void)
   __HAL_RCC_RIFSC_CLK_ENABLE();
 	RIMC_MasterConfig_t RIMC_master = {0};
 	RIMC_master.MasterCID = RIF_CID_1;
-	RIMC_master.SecPriv = RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV;
+	RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;  // Changed back to SEC like old version
 
 	HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_NPU, &RIMC_master);
-	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_NPU, RIF_ATTRIBUTE_PRIV | RIF_ATTRIBUTE_NSEC);
+	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_NPU, RIF_ATTRIBUTE_PRIV | RIF_ATTRIBUTE_SEC);
   /* USER CODE END RIF_Init 0 */
 
   /* set all required IPs as secure privileged */

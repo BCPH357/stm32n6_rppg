@@ -55,6 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern DCMIPP_HandleTypeDef hdcmipp;
 
 /* USER CODE BEGIN EV */
 
@@ -217,5 +218,13 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief This function handles DCMIPP global interrupt.
+  */
+void DCMIPP_IRQHandler(void)
+{
+  HAL_DCMIPP_IRQHandler(&hdcmipp);
+}
 
 /* USER CODE END 1 */
