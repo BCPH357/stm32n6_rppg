@@ -55,10 +55,30 @@ int32_t imx335_read_reg(imx335_ctx_t *ctx, uint16_t reg, uint8_t *pdata, uint16_
   * @param  length Number of data to write
   * @retval Component status
   */
+//int32_t imx335_write_reg(imx335_ctx_t *ctx, uint16_t reg, uint8_t *data, uint16_t length)
+//{
+//  return ctx->WriteReg(ctx->handle, reg, data, length);
+//}
 int32_t imx335_write_reg(imx335_ctx_t *ctx, uint16_t reg, uint8_t *data, uint16_t length)
 {
-  return ctx->WriteReg(ctx->handle, reg, data, length);
+    int32_t ret;
+
+    ret = ctx->WriteReg(ctx->handle, reg, data, length);
+
+    if (ret != 0)
+    {
+        printf("[IMX335][WREG ERR] Reg=0x%04X Len=%d ret=%d\r\n",
+               reg, length, ret);
+    }
+    else
+    {
+        printf("[IMX335][WREG OK]  Reg=0x%04X Len=%d Val=0x%02X\r\n",
+               reg, length, data ? data[0] : 0xFF);
+    }
+
+    return ret;
 }
+
 
 /**
   * @}

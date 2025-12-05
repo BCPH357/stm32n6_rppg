@@ -56,6 +56,9 @@ ISP_StatusTypeDef ISP_Init(ISP_HandleTypeDef *hIsp,
 {
   ISP_StatusTypeDef ret;
 
+  printf("[IQ DEBUG] AEC enable = %d\r\n", ISP_IQParamCacheInit->AECAlgo.enable);
+  printf("[IQ DEBUG] AWB enable = %d\r\n", ISP_IQParamCacheInit->AWBAlgo.enable);
+
   if ((hIsp == NULL) || (hDcmipp == NULL) || (pAppliHelpers == NULL))
   {
     return ISP_ERR_EINVAL;
@@ -146,7 +149,9 @@ ISP_StatusTypeDef ISP_Init(ISP_HandleTypeDef *hIsp,
   }
 
   /* Initialize algorithms */
+  printf("[ISP DEBUG] Calling ISP_Algo_Init...\r\n");
   ret = ISP_Algo_Init(hIsp);
+  printf("[ISP DEBUG] ISP_Algo_Init ret=%d\r\n", ret);
   if (ret != ISP_OK)
   {
     return ret;

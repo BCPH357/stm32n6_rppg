@@ -17,8 +17,8 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
-#define CAMERA_WIDTH    640
-#define CAMERA_HEIGHT   480
+#define CAMERA_WIDTH    800   /* Down-sized output width from ISP/DCMIPP */
+#define CAMERA_HEIGHT   480   /* Down-sized output height from ISP/DCMIPP */
 #define LCD_WIDTH       800
 #define LCD_HEIGHT      480
 #define BUFFER_ADDRESS  0x34200000  /* AXISRAM3 (1 MB) */

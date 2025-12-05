@@ -141,31 +141,42 @@ void HAL_DCMIPP_MspInit(DCMIPP_HandleTypeDef* hdcmipp)
   if(hdcmipp->Instance==DCMIPP)
   {
     /* USER CODE BEGIN DCMIPP_MspInit 0 */
-
-    /* USER CODE END DCMIPP_MspInit 0 */
-
     /*** Enable peripheral clock ***/
-    /* Enable DCMIPP clock */
+    /* Enable DCMIPP clock and interface clocks */
     __HAL_RCC_DCMIPP_CLK_ENABLE();
+    // __HAL_RCC_IC17_CLK_ENABLE();
+    // __HAL_RCC_IC18_CLK_ENABLE();
 
     __HAL_RCC_DCMIPP_FORCE_RESET();
     __HAL_RCC_DCMIPP_RELEASE_RESET();
 
     /*** Configure the NVIC for DCMIPP ***/
+    /* NVIC configuration for DCMIPP transfer complete interrupt */
     HAL_NVIC_SetPriority(DCMIPP_IRQn, 0x07, 0);
     HAL_NVIC_EnableIRQ(DCMIPP_IRQn);
 
-    /*** Enable CSI clock ***/
+    /*** Enable peripheral clock ***/
+    /* Enable CSI clock */
     __HAL_RCC_CSI_CLK_ENABLE();
 
     __HAL_RCC_CSI_FORCE_RESET();
     __HAL_RCC_CSI_RELEASE_RESET();
 
     /*** Configure the NVIC for CSI ***/
+    /* NVIC configuration for CSI transfer complete interrupt */
     HAL_NVIC_SetPriority(CSI_IRQn, 0x07, 0);
     HAL_NVIC_EnableIRQ(CSI_IRQn);
 
+    /* USER CODE END DCMIPP_MspInit 0 */
+    /* USER CODE BEGIN DCMIPP_MspInit 1 */
+
     /* DCMIPP Clock Config */
+    /* Typical PCLK is 333 MHz so the PLL1 is configured to provide this clock */
+    /* Configure DCMIPP clock to IC17 with PLL1  */
+    /* PLL1_VCO Input = HSI_VALUE/PLLM = 64 Mhz / 4 = 16 */
+    /* PLL1_VCO Output = PLL1_VCO Input * PLLN = 16 Mhz * 75 = 1200 */
+    /* PLLLCDCLK = PLL1_VCO Output/(PLLP1 * PLLP2) = 1200/4 = 300Mhz */
+    /* DCMIPP clock frequency = PLLLCDCLK = 300 Mhz */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_DCMIPP;
     PeriphClkInitStruct.DcmippClockSelection = RCC_DCMIPPCLKSOURCE_IC17;
     PeriphClkInitStruct.ICSelection[RCC_IC17].ClockSelection = RCC_ICCLKSOURCE_PLL1;
@@ -175,6 +186,7 @@ void HAL_DCMIPP_MspInit(DCMIPP_HandleTypeDef* hdcmipp)
       Error_Handler();
     }
 
+    /* CSI PHY clock from PLL1 via IC18 (for 1.6 Gbps) */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_CSI;
     PeriphClkInitStruct.ICSelection[RCC_IC18].ClockSelection = RCC_ICCLKSOURCE_PLL1;
     PeriphClkInitStruct.ICSelection[RCC_IC18].ClockDivider = 60;
@@ -183,47 +195,59 @@ void HAL_DCMIPP_MspInit(DCMIPP_HandleTypeDef* hdcmipp)
       Error_Handler();
     }
 
-    /* IMX335 Sensor HW Reset pins */
+    /* IMX335 Sensor HW Reset */
+    /* Enable GPIO clocks */
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
     GPIO_InitTypeDef gpio_init_structure = {0};
+
+    /* Initialize camera NRST pin */
     gpio_init_structure.Pin       = GPIO_PIN_8;
     gpio_init_structure.Pull      = GPIO_NOPULL;
     gpio_init_structure.Mode      = GPIO_MODE_OUTPUT_PP;
     gpio_init_structure.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(GPIOC, &gpio_init_structure);
 
+    /* Initialize camera EN pin */
     gpio_init_structure.Pin       = GPIO_PIN_2;
     gpio_init_structure.Pull      = GPIO_NOPULL;
     gpio_init_structure.Mode      = GPIO_MODE_OUTPUT_PP;
     gpio_init_structure.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(GPIOD, &gpio_init_structure);
 
-    /* Power-on sequence */
+    /* Camera sensor Power-On sequence */
+    /* Assert the camera Enable and NRST pins */
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2, GPIO_PIN_RESET);
-    HAL_Delay(200);
-    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2, GPIO_PIN_SET);
-    HAL_Delay(3);
+    HAL_Delay(200);   /* NRST and Enable signals asserted during 200ms */
 
-    /* AXISRAM clocks */
+    /* De-assert the camera STANDBY pin (active high) */
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2, GPIO_PIN_SET);
+    HAL_Delay(3);     /* NRST de-asserted during 3ms */
+
+    /* SRAM3 and SRAM4 memories clock enable */
     LL_MEM_EnableClock(LL_MEM_AXISRAM3);
     LL_MEM_EnableClock(LL_MEM_AXISRAM4);
 
+    /* Power On AXSRAM3 and AXISRAM4 */
     hramcfg.Instance = RAMCFG_SRAM3_AXI;
     HAL_RAMCFG_EnableAXISRAM(&hramcfg);
+
     hramcfg.Instance = RAMCFG_SRAM4_AXI;
     HAL_RAMCFG_EnableAXISRAM(&hramcfg);
 
+    /* RIF security attributes: allow non-secure access */
     __HAL_RCC_RIFSC_CLK_ENABLE();
+
     RIMC_master.MasterCID = RIF_CID_1;
-    RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
+    RIMC_master.SecPriv = RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV;
 
-    HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &RIMC_master);
-    HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-    /* USER CODE BEGIN DCMIPP_MspInit 1 */
+HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &RIMC_master);
 
+/* Slave 同樣標成 Secure + Privileged */
+HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP,
+                                      RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV);
     /* USER CODE END DCMIPP_MspInit 1 */
 
   }
@@ -241,12 +265,25 @@ void HAL_DCMIPP_MspDeInit(DCMIPP_HandleTypeDef* hdcmipp)
   if(hdcmipp->Instance==DCMIPP)
   {
     /* USER CODE BEGIN DCMIPP_MspDeInit 0 */
+    __HAL_RCC_DCMIPP_FORCE_RESET();
+    __HAL_RCC_DCMIPP_RELEASE_RESET();
 
-    /* USER CODE END DCMIPP_MspDeInit 0 */
-    /* Peripheral clock disable */
-    __HAL_RCC_CSI_CLK_DISABLE();
+    /* Disable NVIC  for DCMIPP transfer complete interrupt */
+    HAL_NVIC_DisableIRQ(DCMIPP_IRQn);
+
+    /* Disable DCMIPP clock */
+    __HAL_RCC_DCMIPP_CLK_DISABLE();
+
     __HAL_RCC_CSI_FORCE_RESET();
     __HAL_RCC_CSI_RELEASE_RESET();
+
+    /* Disable NVIC  for CSI transfer complete interrupt */
+    HAL_NVIC_DisableIRQ(CSI_IRQn);
+
+    /* Disable CSI clock */
+    __HAL_RCC_CSI_CLK_DISABLE();
+    /* USER CODE END DCMIPP_MspDeInit 0 */
+
     /* USER CODE BEGIN DCMIPP_MspDeInit 1 */
 
     /* USER CODE END DCMIPP_MspDeInit 1 */
@@ -368,8 +405,10 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
       Error_Handler();
     }
 
-    /* Peripheral clock enable */
+    /* Peripheral clock enable and reset */
     __HAL_RCC_LTDC_CLK_ENABLE();
+    __HAL_RCC_LTDC_FORCE_RESET();
+    __HAL_RCC_LTDC_RELEASE_RESET();
 
     __HAL_RCC_GPIOH_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -411,14 +450,14 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
     GPIO_InitStruct.Pin = LCD_B4_Pin|LCD_B5_Pin|LCD_R4_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = LCD_R2_Pin|LCD_R7_Pin|LCD_R1_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
@@ -426,14 +465,14 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
                           |LCD_G6_Pin|LCD_G5_Pin|LCD_R3_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = LCD_VSYNC_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(LCD_VSYNC_GPIO_Port, &GPIO_InitStruct);
 
@@ -441,7 +480,7 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
                           |LCD_G0_Pin|LCd_G7_Pin|LCD_DE_Pin|LCD_R6_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
@@ -449,7 +488,7 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
                           |GPIO_PIN_8|LCD_G3_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF14_LCD;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -457,7 +496,7 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
     GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_6;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(GPIOQ, &GPIO_InitStruct);
     HAL_GPIO_WritePin(GPIOQ, GPIO_PIN_3, GPIO_PIN_SET); /* LCD ON */
     HAL_GPIO_WritePin(GPIOQ, GPIO_PIN_6, GPIO_PIN_SET); /* Backlight */
@@ -467,10 +506,13 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
     /* USER CODE END LTDC_MspInit 1 */
 
     RIMC_master.MasterCID = RIF_CID_1;
-    RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
+    RIMC_master.SecPriv = RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV;
 
-    HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_LTDC1 , &RIMC_master);
-    HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL1 , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
+HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_LTDC1, &RIMC_master);
+
+/* Slave 同樣標成 Secure + Privileged */
+HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL1,
+                                      RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV);
 
   }
 
@@ -620,7 +662,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     GPIO_InitStruct.Pin = VCP_TX_Pin|VCP_RX_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 

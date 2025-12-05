@@ -28,7 +28,7 @@
 #include "camera_display.h"
 #include "isp_api.h"          // ISP middleware
 #include "isp_core.h"         // ISP core
-#include "isp_param_conf.h"   // ISP parameters
+#include "imx335_E27_isp_param_conf.h"  // ISP parameters
 #include "imx335.h"           // IMX335 sensor driver
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -42,6 +42,7 @@
 /* USER CODE BEGIN PD */
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #define ENABLE_CAMERA_PIPELINE 1
+#define LTDC_ONLY_TEST 0
 
 /* USER CODE END PD */
 
@@ -94,6 +95,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_DCMIPP_App_Init(void);
 static void MX_I2C1_App_Init(uint32_t timing);
 static void MX_LTDC_Init(void);
+static void MX_DCMIPP_Init(void);
 static void SystemIsolation_Config(void);
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
@@ -109,146 +111,165 @@ void SystemClock_Config(void);
   */
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* Enable the CPU Cache (disable D-Cache to avoid framebuffer artifacts) */
+  /* Enable I-Cache (keep D-Cache off to avoid framebuffer artifacts) */
   SCB_EnableICache();
 
-  /* MCU Configuration--------------------------------------------------------*/
+  /* HAL init */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Configure system clocks */
   SystemClock_Config();
 
-  /* Initialize all configured peripherals */
+  /* Peripherals */
   MX_GPIO_Init();
   MX_CACHEAXI_Init();
   MX_RAMCFG_Init();
   MX_USART1_UART_Init();
 
-  /* USER CODE BEGIN 2 */
   printf("\r\n========================================\r\n");
   printf("  STM32N6 rPPG Camera Display Demo\r\n");
   printf("========================================\r\n");
   printf("[Init] Basic peripherals initialized\r\n");
 
-  /* I2C1 will be initialized by BSP when needed (in IMX335_RegisterBusIO) */
-  // MX_I2C1_App_Init();  // Commented out - BSP will initialize I2C
-  // printf("[Init] I2C1 initialized\r\n");
-
+  /* Initialize LTDC first (display will show framebuffer later) */
   MX_LTDC_Init();
   printf("[Init] LTDC initialized\r\n");
-//  memset((uint8_t*)BUFFER_ADDRESS, 0xFF, 800*480*2);
-//  HAL_Delay(1000);
 
+#if LTDC_ONLY_TEST
+  printf("[LTDC TEST] FBStart from LayerCfg[0] = 0x%08lX\r\n",
+         (unsigned long)hltdc.LayerCfg[0].FBStartAdress);
+  printf("[LTDC TEST] BUFFER_ADDRESS = 0x%08X\r\n", BUFFER_ADDRESS);
 
-  MX_X_CUBE_AI_Init();
-  printf("[Init] X-CUBE-AI initialized\r\n");
-
-  SystemIsolation_Config();
-  printf("[Init] System Isolation configured\r\n");
-
-  /* Initialize camera and display - following official example order */
-  if (ENABLE_CAMERA_PIPELINE)
+  /* Fill framebuffer with pure green (RGB565 0x07E0) */
+  uint16_t *fb = (uint16_t *)BUFFER_ADDRESS;
+  for (int y = 0; y < 480; ++y)
   {
-    printf("[Init] Starting camera pipeline initialization...\r\n");
-
-    /* Step 1: Initialize DCMIPP HAL */
-    MX_DCMIPP_App_Init();
-    printf("[Init] DCMIPP HAL initialized\r\n");
-
-    /* Step 2: Hardware reset - power up sequence for camera */
-    extern int32_t BSP_CAMERA_HwReset(uint32_t Instance);
-    if (BSP_CAMERA_HwReset(0) != 0)  // 0 = BSP_ERROR_NONE
+    for (int x = 0; x < 800; ++x)
     {
-      printf("[ERROR] Camera hardware reset failed\r\n");
-      Error_Handler();
+      fb[y * 800 + x] = 0x07E0;
     }
-    printf("[Init] Camera hardware reset completed\r\n");
-
-    /* Step 3: Initialize IMX335 sensor */
-    if (IMX335_Probe(IMX335_R2592_1944, IMX335_RAW_RGGB10) != IMX335_OK)
-    {
-      printf("[ERROR] IMX335 sensor probe failed\r\n");
-      Error_Handler();
-    }
-    printf("[Init] IMX335 sensor initialized\r\n");
-
-    /* Step 4: Initialize ISP middleware */
-    ISP_AppliHelpersTypeDef appliHelpers;
-    appliHelpers.GetSensorInfo = GetSensorInfoHelper;
-    appliHelpers.SetSensorGain = SetSensorGainHelper;
-    appliHelpers.GetSensorGain = GetSensorGainHelper;
-    appliHelpers.SetSensorExposure = SetSensorExposureHelper;
-    appliHelpers.GetSensorExposure = GetSensorExposureHelper;
-
-    if (ISP_Init(&hcamera_isp, &hdcmipp, 0, &appliHelpers, ISP_IQParamCacheInit[0]) != ISP_OK)
-    {
-      printf("[ERROR] ISP init failed\r\n");
-      Error_Handler();
-    }
-    printf("[Init] ISP initialized\r\n");
-
-    /* Step 5: Start DCMIPP CSI pipe */
-    if (HAL_DCMIPP_CSI_PIPE_Start(&hdcmipp, DCMIPP_PIPE1, DCMIPP_VIRTUAL_CHANNEL0,
-                                   BUFFER_ADDRESS, DCMIPP_MODE_CONTINUOUS) != HAL_OK)
-    {
-      printf("[ERROR] DCMIPP CSI pipe start failed\r\n");
-      Error_Handler();
-    }
-    printf("[Init] DCMIPP CSI pipe started\r\n");
-
-    /* Step 6: Start ISP processing */
-    if (ISP_Start(&hcamera_isp) != ISP_OK)
-    {
-      printf("[ERROR] ISP start failed\r\n");
-      Error_Handler();
-    }
-    printf("[Init] ISP started - camera streaming active\r\n");
   }
-  else
-  {
-    /* Manual DCMIPP initialization (no ISP, for testing only) */
-    CameraDisplay_Init();  /* Fill buffer with test pattern */
-    MX_DCMIPP_App_Init();
-    printf("[Init] DCMIPP initialized (manual mode, no ISP)\r\n");
-  }
+  printf("[LTDC TEST] Framebuffer filled with green (RGB565)\r\n");
 
-  printf("[Main] Entering main loop\r\n");
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-//	  MX_X_CUBE_AI_Process();
-    /* USER CODE BEGIN 3 */
-    /* ISP background processing (auto exposure, white balance, etc.) */
-    if (ENABLE_CAMERA_PIPELINE)
-    {
-      if (ISP_BackgroundProcess(&hcamera_isp) != ISP_OK)
-      {
-        /* ISP processing error - non-fatal, just continue */
-      }
-    }
-
-    /* Camera continuously captures to BUFFER_ADDRESS */
-    /* LTDC continuously displays from BUFFER_ADDRESS */
+    /* LTDC-only test: no camera/ISP */
   }
-  /* USER CODE END 3 */
+#endif
+
+  /* --------------------------------------------------------------
+   * CAMERA PIPELINE INITIALIZATION (OFFICIAL ORDER)
+   * -------------------------------------------------------------- */
+#if ENABLE_CAMERA_PIPELINE
+  printf("[Init] Starting camera pipeline initialization...\r\n");
+
+  /* =============================================================
+   * STEP 1: Initialize DCMIPP (FULL OFFICIAL SEQUENCE REQUIRED!)
+   * ============================================================= */
+  MX_DCMIPP_Init();     // <== 必須完整移植官方的版本
+  printf("[Init] DCMIPP HAL initialized\r\n");
+
+  /* =============================================================
+   * STEP 2: Hardware reset for IMX335
+   * ============================================================= */
+  if (BSP_CAMERA_HwReset(0) != 0)
+  {
+    printf("[ERROR] Camera hardware reset failed\r\n");
+    Error_Handler();
+  }
+  printf("[Init] Camera hardware reset completed\r\n");
+
+  /* =============================================================
+   * STEP 3: Probe & Initialize IMX335 Sensor
+   * (Important: IMX335_Init() inside Probe WILL ENABLE STREAMING)
+   * ============================================================= */
+  if (IMX335_Probe(IMX335_R2592_1944, IMX335_RAW_RGGB10) != IMX335_OK)
+  {
+    printf("[ERROR] IMX335 sensor probe failed\r\n");
+    Error_Handler();
+  }
+  printf("[Init] IMX335 sensor initialized (streaming ON inside init)\r\n");
+
+  /* =============================================================
+   * STEP 4: Initialize ISP (helpers + IQ table)
+   * ============================================================= */
+  ISP_AppliHelpersTypeDef appliHelpers;
+  appliHelpers.GetSensorInfo     = GetSensorInfoHelper;
+  appliHelpers.SetSensorGain     = SetSensorGainHelper;
+  appliHelpers.GetSensorGain     = GetSensorGainHelper;
+  appliHelpers.SetSensorExposure = SetSensorExposureHelper;
+  appliHelpers.GetSensorExposure = GetSensorExposureHelper;
+  printf("[ISP DEBUG] Helper ptrs: %p %p %p %p %p\r\n",
+         appliHelpers.GetSensorInfo,
+         appliHelpers.SetSensorGain,
+         appliHelpers.GetSensorGain,
+         appliHelpers.SetSensorExposure,
+         appliHelpers.GetSensorExposure);
+
+  printf("[DEBUG] Entering ISP_Init...\r\n");
+  ISP_StatusTypeDef istat =
+      ISP_Init(&hcamera_isp,
+               &hdcmipp,
+               0,
+               &appliHelpers,
+               ISP_IQParamCacheInit[0]);   // from imx335_E27_isp_param_conf.h
+
+  if (istat != ISP_OK)
+  {
+    printf("[ERROR] ISP init failed, status=%d\r\n", (int)istat);
+    Error_Handler();
+  }
+  printf("[Init] ISP initialized\r\n");
+
+  /* =============================================================
+   * STEP 5: Start DCMIPP CSI PIPE
+   * (MUST happen AFTER ISP_Init)
+   * ============================================================= */
+  if (HAL_DCMIPP_CSI_PIPE_Start(&hdcmipp,
+                                DCMIPP_PIPE1,
+                                DCMIPP_VIRTUAL_CHANNEL0,
+                                BUFFER_ADDRESS,
+                                DCMIPP_MODE_CONTINUOUS) != HAL_OK)
+  {
+    printf("[ERROR] DCMIPP CSI pipe start failed\r\n");
+    Error_Handler();
+  }
+  printf("[Init] DCMIPP CSI pipe started\r\n");
+
+  /* =============================================================
+   * STEP 6: Start ISP Processing
+   * ============================================================= */
+  if (ISP_Start(&hcamera_isp) != ISP_OK)
+  {
+    printf("[ERROR] ISP start failed\r\n");
+    Error_Handler();
+  }
+  printf("[Init] ISP started - camera streaming active\r\n");
+
+#else
+  /* Manual mode for debugging without ISP */
+  CameraDisplay_Init();
+  MX_DCMIPP_App_Init();
+  printf("[Init] DCMIPP initialized (manual mode, no ISP)\r\n");
+#endif
+
+  printf("[Main] Entering main loop\r\n");
+
+  /* =============================================================
+   * MAIN LOOP
+   * ============================================================= */
+  while (1)
+  {
+#if ENABLE_CAMERA_PIPELINE
+    /* ISP background processing (AE, AWB, etc.) */
+    if (ISP_BackgroundProcess(&hcamera_isp) != ISP_OK)
+    {
+      /* Non-fatal, continue */
+    }
+#endif
+
+    /* LTDC continuously displays framebuffer at BUFFER_ADDRESS */
+  }
 }
+
 
 /**
   * @brief System Clock Configuration
@@ -378,7 +399,6 @@ static void MX_DCMIPP_App_Init(void)
 {
 
   /* USER CODE BEGIN DCMIPP_Init 0 */
-
   /* USER CODE END DCMIPP_Init 0 */
 
   DCMIPP_PipeConfTypeDef pPipeConf = {0};
@@ -545,7 +565,7 @@ static void MX_LTDC_Init(void)
   hltdc.Init.AccumulatedActiveH = RK050HR18_VSYNC + LCD_HEIGHT + RK050HR18_VBP -1 ;
   hltdc.Init.TotalHeigh         = RK050HR18_VSYNC + LCD_HEIGHT + RK050HR18_VBP + RK050HR18_VFP - 1;
   hltdc.Init.Backcolor.Blue = 0;
-  hltdc.Init.Backcolor.Green = 0;
+  hltdc.Init.Backcolor.Green = 0xFF; /* green background like FSBL for visibility */
   hltdc.Init.Backcolor.Red = 0;
   if (HAL_LTDC_Init(&hltdc) != HAL_OK)
   {
@@ -635,17 +655,17 @@ static void MX_RAMCFG_Init(void)
   * @param None
   * @retval None
   */
-  static void SystemIsolation_Config(void)
+ static void SystemIsolation_Config(void)
 {
 
   /* USER CODE BEGIN RIF_Init 0 */
   __HAL_RCC_RIFSC_CLK_ENABLE();
 	RIMC_MasterConfig_t RIMC_master = {0};
 	RIMC_master.MasterCID = RIF_CID_1;
-	RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
+	RIMC_master.SecPriv = RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV;
 
 	HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_NPU, &RIMC_master);
-	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_NPU, RIF_ATTRIBUTE_PRIV | RIF_ATTRIBUTE_SEC);
+	HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_NPU, RIF_ATTRIBUTE_PRIV | RIF_ATTRIBUTE_NSEC);
   /* USER CODE END RIF_Init 0 */
 
   /* set all required IPs as secure privileged */
@@ -873,6 +893,85 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 /* USER CODE BEGIN 4 */
+/**
+  * @brief DCMIPP Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DCMIPP_Init(void)
+{
+  /* USER CODE BEGIN DCMIPP_Init 0 */
+	 printf(">>> Enter FSBL MX_DCMIPP_Init()\n");
+  /* USER CODE END DCMIPP_Init 0 */
+  DCMIPP_PipeConfTypeDef pPipeConf = {0};
+  DCMIPP_CSI_PIPE_ConfTypeDef pCSIPipeConf = {0};
+  DCMIPP_CSI_ConfTypeDef csiconf = {0};
+  DCMIPP_DownsizeTypeDef DonwsizeConf ={0};
+
+  /* Set DCMIPP instance */
+  hdcmipp.Instance = DCMIPP;
+  if (HAL_DCMIPP_Init(&hdcmipp) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* Configure the CSI */
+  csiconf.DataLaneMapping = DCMIPP_CSI_PHYSICAL_DATA_LANES;
+  csiconf.NumberOfLanes   = DCMIPP_CSI_TWO_DATA_LANES;
+  csiconf.PHYBitrate      = DCMIPP_CSI_PHY_BT_1600;
+  if(HAL_DCMIPP_CSI_SetConfig(&hdcmipp, &csiconf) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* Configure the Virtual Channel 0 */
+  /* Set Virtual Channel config */
+  if(HAL_DCMIPP_CSI_SetVCConfig(&hdcmipp, DCMIPP_VIRTUAL_CHANNEL0, DCMIPP_CSI_DT_BPP10) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* Configure the serial Pipe */
+  pCSIPipeConf.DataTypeMode = DCMIPP_DTMODE_DTIDA;
+  pCSIPipeConf.DataTypeIDA  = DCMIPP_DT_RAW10;
+  pCSIPipeConf.DataTypeIDB  = DCMIPP_DT_RAW10; /* Don't Care */
+
+
+  if (HAL_DCMIPP_CSI_PIPE_SetConfig(&hdcmipp, DCMIPP_PIPE1, &pCSIPipeConf) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  pPipeConf.FrameRate  = DCMIPP_FRAME_RATE_ALL;
+  pPipeConf.PixelPackerFormat = DCMIPP_PIXEL_PACKER_FORMAT_RGB565_1;
+
+  /* Set Pitch for Main and Ancillary Pipes */
+  pPipeConf.PixelPipePitch  = 1600 ; /* Number of bytes */
+
+  /* Configure Pipe */
+  if (HAL_DCMIPP_PIPE_SetConfig(&hdcmipp, DCMIPP_PIPE1, &pPipeConf) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* Configure the downsize */
+  DonwsizeConf.HRatio      = 25656;
+  DonwsizeConf.VRatio      = 33161;
+  DonwsizeConf.HSize       = 800;
+  DonwsizeConf.VSize       = 480;
+  DonwsizeConf.HDivFactor  = 316;
+  DonwsizeConf.VDivFactor  = 253;
+
+  if(HAL_DCMIPP_PIPE_SetDownsizeConfig(&hdcmipp, DCMIPP_PIPE1, &DonwsizeConf) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if(HAL_DCMIPP_PIPE_EnableDownsize(&hdcmipp, DCMIPP_PIPE1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DCMIPP_Init 2 */
+  /* USER CODE END DCMIPP_Init 2 */
+}
 
 /**
   * @brief  Probe and initialize IMX335 sensor
@@ -940,6 +1039,13 @@ static int32_t IMX335_Probe(uint32_t Resolution, uint32_t PixelFormat)
     return IMX335_ERROR;
   }
 
+  /* Read MODE_SELECT after init */
+  {
+    uint8_t mode = 0xFF;
+    imx335_read_reg(&IMX335Obj.Ctx, IMX335_REG_MODE_SELECT, &mode, 1);
+    printf("[IMX335] MODE_SELECT after init = 0x%02X\r\n", mode);
+  }
+
   printf("[IMX335] Probe completed successfully\r\n");
 
   return IMX335_OK;
@@ -993,6 +1099,8 @@ static ISP_StatusTypeDef GetSensorExposureHelper(uint32_t Instance, int32_t *Exp
   *Exposure = isp_exposure;  // Return cached value
   return ISP_OK;
 }
+
+
 
 /* USER CODE END 4 */
 

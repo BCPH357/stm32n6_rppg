@@ -280,8 +280,17 @@ ISP_StatusTypeDef ISP_Algo_AEC_Init(void *hIsp, void *pAlgo)
   ISP_SensorGainTypeDef gainConfig;
   ISP_IQParamTypeDef *IQParamConfig;
   evision_return_t e_ret;
+  ISP_StatusTypeDef ret;
+
+  printf("[ISP DEBUG] Enter AEC Init\r\n");
 
   IQParamConfig = ISP_SVC_IQParam_Get(hIsp);
+  /* If AEC is disabled in IQ table, skip AEC init entirely */
+  if (IQParamConfig->AECAlgo.enable == 0)
+  {
+    printf("[ISP DEBUG] AEC disabled in IQ, skip AEC init\r\n");
+    return ISP_OK;
+  }
 
   if (IQParamConfig->sensorDelay.delay == 0)
   {
@@ -290,14 +299,18 @@ ISP_StatusTypeDef ISP_Algo_AEC_Init(void *hIsp, void *pAlgo)
   }
 
   /* Create st_ae_process instance */
+  printf("[ISP DEBUG] AEC: ctx new...\r\n");
   pIspAEprocess = evision_api_st_ae_new(log_cb);
+  printf("[ISP DEBUG] AEC ctx = %p\r\n", pIspAEprocess);
   if (pIspAEprocess == NULL)
   {
     return ISP_ERR_ALGO;
   }
 
   /* Initialize st_ae_process instance */
+  printf("[ISP DEBUG] AEC init start\r\n");
   e_ret = evision_api_st_ae_init(pIspAEprocess);
+  printf("[ISP DEBUG] AEC init ret = %d\r\n", e_ret);
   if (e_ret != EVISION_RET_SUCCESS)
   {
     evision_api_st_ae_delete(pIspAEprocess);
@@ -316,10 +329,23 @@ ISP_StatusTypeDef ISP_Algo_AEC_Init(void *hIsp, void *pAlgo)
   /* Initialize exposure and gain at min value */
   if (IQParamConfig->AECAlgo.enable == true)
   {
+    printf("[ISP DEBUG] AEC second stage begin\r\n");
     exposureConfig.exposure = pIsp_handle->sensorInfo.exposure_min;
     gainConfig.gain = pIsp_handle->sensorInfo.gain_min;
-    if ((ISP_SVC_Sensor_SetExposure(hIsp, &exposureConfig) != ISP_OK) || (ISP_SVC_Sensor_SetGain(hIsp, &gainConfig)!= ISP_OK))
+    printf("[ISP DEBUG] AEC SetExposure...\r\n");
+    ret = ISP_SVC_Sensor_SetExposure(hIsp, &exposureConfig);
+    printf("[ISP DEBUG] AEC SetExposure ret=%d\r\n", ret);
+    if (ret != ISP_OK)
     {
+      printf("[ISP DEBUG] AEC FAIL: SetExposure failed ret=%d\r\n", ret);
+      return ISP_ERR_ALGO;
+    }
+    printf("[ISP DEBUG] AEC SetGain...\r\n");
+    ret = ISP_SVC_Sensor_SetGain(hIsp, &gainConfig);
+    printf("[ISP DEBUG] AEC SetGain ret=%d\r\n", ret);
+    if (ret != ISP_OK)
+    {
+      printf("[ISP DEBUG] AEC FAIL: SetGain failed ret=%d\r\n", ret);
       return ISP_ERR_ALGO;
     }
   }
@@ -609,10 +635,14 @@ ISP_StatusTypeDef ISP_Algo_AWB_Init(void *hIsp, void *pAlgo)
   (void)hIsp; /* unused */
   ISP_AlgoTypeDef *algo = (ISP_AlgoTypeDef *)pAlgo;
 
+  printf("[ISP DEBUG] Enter AWB Init\r\n");
+
   /* Create estimator */
   pIspAWBestimator = evision_api_awb_new(log_cb);
+  printf("[ISP DEBUG] AWB ctx = %p\r\n", pIspAWBestimator);
   if (pIspAWBestimator == NULL)
   {
+    printf("[ISP DEBUG] AWB FAIL at ctx new ret=%d\r\n", ISP_ERR_ALGO);
     return ISP_ERR_ALGO;
   }
 
@@ -748,11 +778,14 @@ ISP_StatusTypeDef ISP_Algo_AWB_Process(void *hIsp, void *pAlgo)
     }
 
     /* Register profiles */
+    printf("[ISP DEBUG] AWB init profiles...\r\n");
     e_ret = evision_api_awb_init_profiles(pIspAWBestimator, (double) IQParamConfig->AWBAlgo.referenceColorTemp[0],
                                           (double) IQParamConfig->AWBAlgo.referenceColorTemp[profNb - 1], profNb,
                                           colorTempThresholds, awbProfiles);
+    printf("[ISP DEBUG] AWB init ret = %d\r\n", e_ret);
     if (e_ret != EVISION_RET_SUCCESS)
     {
+      printf("[ISP DEBUG] AWB FAIL at init_profiles ret=%d\r\n", e_ret);
       return ISP_ERR_ALGO;
     }
 
@@ -1193,11 +1226,25 @@ ISP_StatusTypeDef ISP_Algo_Init(ISP_HandleTypeDef *hIsp)
   for (i = 0; i < sizeof(ISP_Algo_List) / sizeof(*ISP_Algo_List); i++)
   {
     algo = hIsp->algorithm[i];
+    const char *algo_name = "Unknown";
+    if (algo == &ISP_Algo_BadPixel) { algo_name = "BadPixel"; }
+#ifdef ISP_MW_SW_AEC_ALGO_SUPPORT
+    else if (algo == &ISP_Algo_AEC) { algo_name = "AEC"; }
+#endif /* ISP_MW_SW_AEC_ALGO_SUPPORT */
+#ifdef ISP_MW_SW_AWB_ALGO_SUPPORT
+    else if (algo == &ISP_Algo_AWB) { algo_name = "AWB"; }
+#endif /* ISP_MW_SW_AWB_ALGO_SUPPORT */
+#ifdef ISP_MW_TUNING_TOOL_SUPPORT
+    else if (algo == &ISP_Algo_SensorDelay) { algo_name = "SensorDelay"; }
+#endif /* ISP_MW_TUNING_TOOL_SUPPORT */
     if ((algo != NULL) && (algo->Init != NULL))
     {
+      printf("[ISP DEBUG] AlgoInit: %s - start\r\n", algo_name);
       ret = algo->Init((void*)hIsp, (void*)algo);
+      printf("[ISP DEBUG] AlgoInit: %s - ret=%d\r\n", algo_name, ret);
       if (ret != ISP_OK)
       {
+        printf("[ISP DEBUG] AlgoInit: FAIL at %s ret=%d\r\n", algo_name, ret);
         return ret;
       }
     }

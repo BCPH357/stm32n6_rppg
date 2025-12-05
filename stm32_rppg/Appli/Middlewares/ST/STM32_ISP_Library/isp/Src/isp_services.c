@@ -1113,10 +1113,15 @@ ISP_StatusTypeDef ISP_SVC_Sensor_SetGain(ISP_HandleTypeDef *hIsp, ISP_SensorGain
 
   if (hIsp->appliHelpers.SetSensorGain != NULL)
   {
-    if (hIsp->appliHelpers.SetSensorGain(hIsp->cameraInstance, pConfig->gain) != 0)
+    printf("[ISP DEBUG] Sensor SetGain: gain=%ld\r\n", (long)pConfig->gain);
+    int32_t i2c_ret = hIsp->appliHelpers.SetSensorGain(hIsp->cameraInstance, pConfig->gain);
+    printf("[ISP DEBUG] Sensor_SetGain reg write ret=%ld\r\n", (long)i2c_ret);
+    if (i2c_ret != 0)
     {
+      printf("[ISP DEBUG] Sensor SetGain ret=%d\r\n", ISP_ERR_SENSORGAIN);
       return ISP_ERR_SENSORGAIN;
     }
+    printf("[ISP DEBUG] Sensor SetGain ret=%d\r\n", ISP_OK);
   }
 
   Meta.gain = pConfig->gain;
@@ -1167,10 +1172,15 @@ ISP_StatusTypeDef ISP_SVC_Sensor_SetExposure(ISP_HandleTypeDef *hIsp, ISP_Sensor
 
   if (hIsp->appliHelpers.SetSensorExposure != NULL)
   {
-    if (hIsp->appliHelpers.SetSensorExposure(hIsp->cameraInstance, pConfig->exposure) != 0)
+    printf("[ISP DEBUG] Sensor SetExposure: expo=%ld\r\n", (long)pConfig->exposure);
+    int32_t i2c_ret = hIsp->appliHelpers.SetSensorExposure(hIsp->cameraInstance, pConfig->exposure);
+    printf("[ISP DEBUG] Sensor_SetExposure reg write ret=%ld\r\n", (long)i2c_ret);
+    if (i2c_ret != 0)
     {
+      printf("[ISP DEBUG] Sensor SetExposure ret=%d\r\n", ISP_ERR_SENSOREXPOSURE);
       return ISP_ERR_SENSOREXPOSURE;
     }
+    printf("[ISP DEBUG] Sensor SetExposure ret=%d\r\n", ISP_OK);
   }
 
   Meta.exposure = pConfig->exposure;

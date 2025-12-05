@@ -404,7 +404,7 @@ int32_t BSP_I2C1_WriteReg16(uint16_t DevAddr, uint16_t Reg, uint8_t *pData, uint
   else
   {
 	  uint32_t err = HAL_I2C_GetError(&hbus_i2c1);
-	      printf("[I2C1111 ERR0] DevAddr=0x%02X Reg=0x%04X Len=%u HAL_I2C_GetError=0x%08lX\r\n",
+	      printf("[1I2C ERR0] DevAddr=0x%02X Reg=0x%04X Len=%u HAL_I2C_GetError=0x%08lX\r\n",
 	             DevAddr, Reg, Length, err);
     if (HAL_I2C_GetError(&hbus_i2c1) == HAL_I2C_ERROR_AF)
     {
