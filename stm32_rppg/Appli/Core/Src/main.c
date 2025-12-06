@@ -236,6 +236,9 @@ int main(void)
     printf("[ERROR] DCMIPP CSI pipe start failed\r\n");
     Error_Handler();
   }
+  printf("[DCMIPP DEBUG] Capture destination: 0x%08lX, pitch=%lu bytes, format=RGB565\n",
+         (unsigned long)BUFFER_ADDRESS,
+         (unsigned long)1600);
 
   /* Ensure frame/vsync/overrun interrupts are enabled */
   __HAL_DCMIPP_ENABLE_IT(&hdcmipp, DCMIPP_IT_PIPE1_FRAME | DCMIPP_IT_PIPE1_VSYNC | DCMIPP_IT_PIPE1_OVR);
@@ -262,6 +265,39 @@ int main(void)
          (unsigned long)hdcmipp.Instance->CMCR,
          (unsigned long)hdcmipp.Instance->CMIER,
          (unsigned long)hdcmipp.Instance->CMSR2);
+
+  /* ===== CRITICAL: Dump PIPE1 control registers after start ===== */
+  printf("[DCMIPP PIPE1 CHECK] After HAL_DCMIPP_CSI_PIPE_Start + ISP_Start:\r\n");
+  printf("  P1FSCR=0x%08lX (PIPEN bit31=%lu)\r\n",
+         (unsigned long)DCMIPP->P1FSCR,
+         (unsigned long)((DCMIPP->P1FSCR >> 31) & 0x1));
+  printf("  P1FCTCR=0x%08lX (CPTREQ bit3=%lu, CPTMODE bit1=%lu)\r\n",
+         (unsigned long)DCMIPP->P1FCTCR,
+         (unsigned long)((DCMIPP->P1FCTCR >> 3) & 0x1),
+         (unsigned long)((DCMIPP->P1FCTCR >> 1) & 0x1));
+  printf("  P1PPM0AR1=0x%08lX (should be 0x%08lX)\r\n",
+         (unsigned long)DCMIPP->P1PPM0AR1,
+         (unsigned long)BUFFER_ADDRESS);
+  printf("  P1PPM0PR=0x%08lX (pitch, should be 1600=0x640)\r\n",
+         (unsigned long)DCMIPP->P1PPM0PR);
+  printf("  P1PPCR=0x%08lX (FORMAT bits0-3=%lu, expected 1=RGB565)\r\n",
+         (unsigned long)DCMIPP->P1PPCR,
+         (unsigned long)(DCMIPP->P1PPCR & 0xF));
+  printf("  CMSR1=0x%08lX (P1CPTACT bit9=%lu)\r\n",
+         (unsigned long)DCMIPP->CMSR1,
+         (unsigned long)((DCMIPP->CMSR1 >> 9) & 0x1));
+  printf("  [ISP Demosaic] P1DMCR=0x%08lX (ENABLE=%lu)\r\n",
+         (unsigned long)DCMIPP->P1DMCR,
+         (unsigned long)(DCMIPP->P1DMCR & 0x1));
+  printf("  [ISP Exposure] P1DECR=0x%08lX (ENABLE=%lu)\r\n",
+         (unsigned long)DCMIPP->P1DECR,
+         (unsigned long)(DCMIPP->P1DECR & 0x1));
+  printf("  [ISP Color Conv] P1CCCR=0x%08lX (ENABLE=%lu)\r\n",
+         (unsigned long)DCMIPP->P1CCCR,
+         (unsigned long)(DCMIPP->P1CCCR & 0x1));
+  printf("  [ISP Gamma] P1GMCR=0x%08lX (ENABLE=%lu)\r\n",
+         (unsigned long)DCMIPP->P1GMCR,
+         (unsigned long)(DCMIPP->P1GMCR & 0x1));
 
 #else
   /* Manual mode for debugging without ISP */

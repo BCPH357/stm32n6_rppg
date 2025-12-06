@@ -237,17 +237,21 @@ void HAL_DCMIPP_MspInit(DCMIPP_HandleTypeDef* hdcmipp)
     hramcfg.Instance = RAMCFG_SRAM4_AXI;
     HAL_RAMCFG_EnableAXISRAM(&hramcfg);
 
-    /* RIF security attributes: allow non-secure access */
+    /* RIF security attributes: MUST match LTDC (both SEC + PRIV) for AXISRAM3 access!
+     * CRITICAL: DCMIPP and LTDC share the same framebuffer at 0x34200000 (AXISRAM3).
+     * If DCMIPP is NSEC but memory region is SEC, writes will be silently dropped!
+     * Official DCMIPP_ContinuousMode uses SEC + PRIV for DCMIPP.
+     */
     __HAL_RCC_RIFSC_CLK_ENABLE();
 
     RIMC_master.MasterCID = RIF_CID_1;
-    RIMC_master.SecPriv = RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV;
+    RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;  /* Match official: SEC + PRIV */
 
-HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &RIMC_master);
+    HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &RIMC_master);
 
-/* Slave 同樣標成 Secure + Privileged */
-HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP,
-                                      RIF_ATTRIBUTE_NSEC | RIF_ATTRIBUTE_PRIV);
+    /* Slave also set to Secure + Privileged (same as official) */
+    HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP,
+                                          RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
     /* USER CODE END DCMIPP_MspInit 1 */
 
   }

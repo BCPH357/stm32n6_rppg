@@ -151,6 +151,68 @@ void BSP_CAMERA_FrameEventCallback(uint32_t Instance)
     if ((frame_count % 30U) == 0U)
     {
         printf("[Camera] Frame %lu captured\r\n", frame_count);
+
+        /* Peek first few pixels to verify buffer is being written */
+        volatile uint16_t *fb = (volatile uint16_t *)BUFFER_ADDRESS;
+        printf("[Camera] Buffer @0x%08lX, FB[0..3]=0x%04X 0x%04X 0x%04X 0x%04X\r\n",
+               (unsigned long)BUFFER_ADDRESS, fb[0], fb[1], fb[2], fb[3]);
+
+        /* Dump DCMIPP Pipe1 pixel packer destination registers */
+        printf("[DCMIPP DST] P1PPM0AR1=0x%08lX P1PPM0AR2=0x%08lX P1PPM0PR=0x%08lX\r\n",
+               (unsigned long)DCMIPP->P1PPM0AR1,
+               (unsigned long)DCMIPP->P1PPM0AR2,
+               (unsigned long)DCMIPP->P1PPM0PR);
+
+        /* Dump critical PIPE1 control registers */
+        printf("[DCMIPP PIPE1] P1FSCR=0x%08lX (PIPEN=%lu) P1FCTCR=0x%08lX (CPTREQ=%lu CPTMODE=%lu)\r\n",
+               (unsigned long)DCMIPP->P1FSCR,
+               (unsigned long)((DCMIPP->P1FSCR >> 31) & 0x1),  /* PIPEN bit 31 */
+               (unsigned long)DCMIPP->P1FCTCR,
+               (unsigned long)((DCMIPP->P1FCTCR >> 3) & 0x1),  /* CPTREQ bit 3 */
+               (unsigned long)((DCMIPP->P1FCTCR >> 1) & 0x1)); /* CPTMODE bit 1 */
+
+        /* Dump CMSR1 status - capture active flags */
+        printf("[DCMIPP STATUS] CMSR1=0x%08lX (P1CPTACT=%lu)\r\n",
+               (unsigned long)DCMIPP->CMSR1,
+               (unsigned long)((DCMIPP->CMSR1 >> 9) & 0x1));  /* P1CPTACT bit 9 */
+
+        /* Dump Pixel Packer config */
+        printf("[DCMIPP P1PPCR] P1PPCR=0x%08lX (FORMAT=%lu)\r\n",
+               (unsigned long)DCMIPP->P1PPCR,
+               (unsigned long)(DCMIPP->P1PPCR & 0xF));  /* FORMAT bits 0-3 */
+
+        /* Dump ISP/Demosaic enable status */
+        printf("[DCMIPP ISP] P1DMCR=0x%08lX (ENABLE=%lu) P1DECR=0x%08lX (ENABLE=%lu)\r\n",
+               (unsigned long)DCMIPP->P1DMCR,
+               (unsigned long)(DCMIPP->P1DMCR & 0x1),  /* ENABLE bit 0 */
+               (unsigned long)DCMIPP->P1DECR,
+               (unsigned long)(DCMIPP->P1DECR & 0x1)); /* ENABLE bit 0 */
+
+        /* ===== Downsize registers ===== */
+        printf("[DCMIPP DOWNSIZE] P1DSCR=0x%08lX (ENABLE=%lu, HDIV=%lu, VDIV=%lu)\r\n",
+               (unsigned long)DCMIPP->P1DSCR,
+               (unsigned long)((DCMIPP->P1DSCR >> 31) & 0x1),
+               (unsigned long)(DCMIPP->P1DSCR & 0x3FF),
+               (unsigned long)((DCMIPP->P1DSCR >> 16) & 0x3FF));
+        printf("[DCMIPP DOWNSIZE] P1CRSZR=0x%08lX (ENABLE=%lu, HSIZE=%lu, VSIZE=%lu)\r\n",
+               (unsigned long)DCMIPP->P1CRSZR,
+               (unsigned long)((DCMIPP->P1CRSZR >> 31) & 0x1),
+               (unsigned long)(DCMIPP->P1CRSZR & 0xFFF),
+               (unsigned long)((DCMIPP->P1CRSZR >> 16) & 0xFFF));
+
+        /* ===== Check buffer at different offsets ===== */
+        printf("[Buffer Check] Checking 4 corners:\r\n");
+        printf("  [0,0]=0x%04X [400,0]=0x%04X [0,240]=0x%04X [799,479]=0x%04X\r\n",
+               fb[0],                         /* top-left */
+               fb[400],                       /* top-middle */
+               fb[240*800],                   /* middle-left */
+               fb[479*800 + 799]);            /* bottom-right */
+
+        /* Check if CMSR1 P1CPTACT is really at bit 23 */
+        printf("[CMSR1 DEBUG] Raw=0x%08lX bit23=%lu bit9=%lu\r\n",
+               (unsigned long)DCMIPP->CMSR1,
+               (unsigned long)((DCMIPP->CMSR1 >> 23) & 0x1),
+               (unsigned long)((DCMIPP->CMSR1 >> 9) & 0x1));
     }
 }
 
