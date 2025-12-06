@@ -140,16 +140,15 @@ void CameraDisplay_Stop(void)
   * @param  Pipe Pipe number
   * @retval None
   */
-__weak void HAL_DCMIPP_PIPE_FrameEventCallback(DCMIPP_HandleTypeDef *hdcmipp, uint32_t Pipe)
+/* HAL callback is provided by BSP and routes to BSP_CAMERA_FrameEventCallback().
+ * Override the BSP weak hook here so we get logs when frames arrive. */
+void BSP_CAMERA_FrameEventCallback(uint32_t Instance)
 {
-    /* Ignore unused parameter */
-    (void)hdcmipp;
-    (void)Pipe;
-
+    (void)Instance;
     frame_count++;
 
     /* Print frame count every 30 frames (~1 sec at 30 fps) */
-    if (frame_count % 30 == 0)
+    if ((frame_count % 30U) == 0U)
     {
         printf("[Camera] Frame %lu captured\r\n", frame_count);
     }

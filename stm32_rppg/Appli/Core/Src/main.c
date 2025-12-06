@@ -142,8 +142,13 @@ int main(void)
   printf("[Init] X-CUBE-AI initialized (AXISRAM clocks enabled)\r\n");
 
   /* Configure system isolation (RIF for NPU, DCMIPP, LTDC, and GPIO attributes) */
-  SystemIsolation_Config();
-  printf("[Init] System Isolation configured (RIF + GPIO attributes)\r\n");
+  /* ⚠️ DISABLED: SystemIsolation_Config() sets RIF_ATTRIBUTE_SEC which blocks CSI PHY!
+   * Official DCMIPP_ContinuousMode example does NOT have this function.
+   * When IMX335 starts streaming, SEC attribute causes system crash.
+   * See: gentle-crunching-finch.md plan for details.
+   */
+  // SystemIsolation_Config();
+  printf("[Init] SystemIsolation_Config SKIPPED (causes CSI PHY block with SEC attribute)\r\n");
 
   /* Initialize camera display (sets up LTDC layer and enables display) */
   CameraDisplay_Init();
@@ -163,24 +168,29 @@ int main(void)
 
   /* =============================================================
    * STEP 2: Hardware reset for IMX335
+   * NOTE: Official DCMIPP_ContinuousMode does NOT call BSP_CAMERA_HwReset()!
+   *       It directly calls IMX335_Probe(). Removing this call.
    * ============================================================= */
+  /* DISABLED - Official doesn't have this
   if (BSP_CAMERA_HwReset(0) != 0)
   {
     printf("[ERROR] Camera hardware reset failed\r\n");
     Error_Handler();
   }
   printf("[Init] Camera hardware reset completed\r\n");
+  */
+  printf("[Init] Skipping BSP_CAMERA_HwReset (official doesn't call it)\r\n");
 
   /* =============================================================
    * STEP 3: Probe & Initialize IMX335 Sensor
-   * (Important: IMX335_Init() inside Probe WILL ENABLE STREAMING)
+   * (MODE_SELECT = 0x00 is written inside IMX335_Init - same as official)
    * ============================================================= */
   if (IMX335_Probe(IMX335_R2592_1944, IMX335_RAW_RGGB10) != IMX335_OK)
   {
     printf("[ERROR] IMX335 sensor probe failed\r\n");
     Error_Handler();
   }
-  printf("[Init] IMX335 sensor initialized (streaming ON inside init)\r\n");
+  printf("[Init] IMX335 sensor initialized (streaming started in IMX335_Init)\r\n");
 
   /* =============================================================
    * STEP 4: Initialize ISP (helpers + IQ table)
@@ -226,6 +236,10 @@ int main(void)
     printf("[ERROR] DCMIPP CSI pipe start failed\r\n");
     Error_Handler();
   }
+
+  /* Ensure frame/vsync/overrun interrupts are enabled */
+  __HAL_DCMIPP_ENABLE_IT(&hdcmipp, DCMIPP_IT_PIPE1_FRAME | DCMIPP_IT_PIPE1_VSYNC | DCMIPP_IT_PIPE1_OVR);
+
   printf("[Init] DCMIPP CSI pipe started\r\n");
 
   /* =============================================================
@@ -236,7 +250,18 @@ int main(void)
     printf("[ERROR] ISP start failed\r\n");
     Error_Handler();
   }
-  printf("[Init] ISP started - camera streaming active\r\n");
+  printf("[Init] ISP started\r\n");
+
+  /* NOTE: MODE_SELECT is now written inside IMX335_Init() (same as official)
+   * Streaming was already started in STEP 3 before ISP/DCMIPP_Start.
+   * This matches official DCMIPP_ContinuousMode behavior.
+   */
+
+  /* Quick dump of DCMIPP interrupt enable/status right after start */
+  printf("[DCMIPP DEBUG] CMCR=0x%08lX CMIER=0x%08lX CMSR2=0x%08lX\r\n",
+         (unsigned long)hdcmipp.Instance->CMCR,
+         (unsigned long)hdcmipp.Instance->CMIER,
+         (unsigned long)hdcmipp.Instance->CMSR2);
 
 #else
   /* Manual mode for debugging without ISP */
@@ -257,6 +282,26 @@ int main(void)
     if (ISP_BackgroundProcess(&hcamera_isp) != ISP_OK)
     {
       /* Non-fatal, continue */
+    }
+#endif
+
+#if ENABLE_CAMERA_PIPELINE
+    /* Periodic DCMIPP status dump every ~1s */
+    static uint32_t last_dump = 0;
+    uint32_t now = HAL_GetTick();
+    if ((now - last_dump) >= 1000U)
+    {
+      last_dump = now;
+      uint32_t cmcr  = hdcmipp.Instance->CMCR;
+      uint32_t cmier = hdcmipp.Instance->CMIER;
+      uint32_t cmsr2 = hdcmipp.Instance->CMSR2;
+      uint32_t pstate = hdcmipp.PipeState[DCMIPP_PIPE1];
+      printf("[DCMIPP DEBUG] Tick=%lu CMCR=0x%08lX CMIER=0x%08lX CMSR2=0x%08lX Pipe1State=%lu\r\n",
+             (unsigned long)now,
+             (unsigned long)cmcr,
+             (unsigned long)cmier,
+             (unsigned long)cmsr2,
+             (unsigned long)pstate);
     }
 #endif
 
@@ -1033,12 +1078,10 @@ static int32_t IMX335_Probe(uint32_t Resolution, uint32_t PixelFormat)
     return IMX335_ERROR;
   }
 
-  /* Read MODE_SELECT after init */
-  {
-    uint8_t mode = 0xFF;
-    imx335_read_reg(&IMX335Obj.Ctx, IMX335_REG_MODE_SELECT, &mode, 1);
-    printf("[IMX335] MODE_SELECT after init = 0x%02X\r\n", mode);
-  }
+/* NOTE: MODE_SELECT is now written inside IMX335_Init() (restored to match official)
+   * The streaming is started in IMX335_Init, before ISP_Init/DCMIPP_Start.
+   * This is the same behavior as official DCMIPP_ContinuousMode.
+   */
 
   printf("[IMX335] Probe completed successfully\r\n");
 

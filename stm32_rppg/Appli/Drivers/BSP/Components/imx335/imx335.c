@@ -380,15 +380,12 @@ static int32_t IMX335_WriteTable(IMX335_Object_t *pObj, const struct regval *reg
   */
 static int32_t IMX335_Delay(IMX335_Object_t *pObj, uint32_t Delay)
 {
-  /* NO PRINTF - UART may be blocked after MODE_SELECT */
-
-  /* Use busy-wait instead of HAL_Delay to avoid SysTick dependency */
-  volatile uint32_t count = Delay * (SystemCoreClock / 8000U);
-  while (count--)
+  /* Use tick-based delay (same as official implementation) */
+  uint32_t tickstart = pObj->IO.GetTick();
+  while ((pObj->IO.GetTick() - tickstart) < Delay)
   {
-    __NOP();
+    /* Wait */
   }
-
   return IMX335_OK;
 }
 
@@ -552,25 +549,22 @@ int32_t IMX335_Init(IMX335_Object_t *pObj, uint32_t Resolution, uint32_t PixelFo
         {
             printf("[IMX335_Init] Mode regs written successfully\r\n");
 
-            /* 🚫 在 Init 階段不啟動串流，避免 MIPI 在 DCMIPP/ISP 未準備好時提前輸出
-             *
-             * tmp = IMX335_MODE_STREAMING;
-             * printf("[IMX335_Init] Writing MODE_SELECT reg (0x%04X) = 0x%02X...\r\n",
-             *        IMX335_REG_MODE_SELECT, tmp);
-             * if (imx335_write_reg(&pObj->Ctx, IMX335_REG_MODE_SELECT, &tmp, 1) != IMX335_OK)
-             * {
-             *     printf("[IMX335_Init] ERROR: write_reg failed for MODE_SELECT\r\n");
-             *     ret = IMX335_ERROR;
-             * }
-             * else
-             * {
-             *     IMX335_Delay(pObj, 20);
-             * }
-             */
-
-            /* ✔ Initialization complete (sensor configured but **NOT** streaming yet) */
-            pObj->IsInitialized = 1U;
-            printf("[IMX335_Init] Initialization complete (streaming not started)\r\n");
+            /* Start streaming (same as official DCMIPP_ContinuousMode) */
+            tmp = IMX335_MODE_STREAMING;
+            printf("[IMX335_Init] Writing MODE_SELECT reg (0x%04X) = 0x%02X...\r\n",
+                   IMX335_REG_MODE_SELECT, tmp);
+            if (imx335_write_reg(&pObj->Ctx, IMX335_REG_MODE_SELECT, &tmp, 1) != IMX335_OK)
+            {
+                printf("[IMX335_Init] ERROR: write_reg failed for MODE_SELECT\r\n");
+                ret = IMX335_ERROR;
+            }
+            else
+            {
+                printf("[IMX335_Init] MODE_SELECT written, delaying 20ms...\r\n");
+                IMX335_Delay(pObj, 20);
+                pObj->IsInitialized = 1U;
+                printf("[IMX335_Init] Initialization complete! Streaming ON\r\n");
+            }
         }
     }
     else

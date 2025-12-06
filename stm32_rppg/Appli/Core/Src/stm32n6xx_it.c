@@ -220,6 +220,16 @@ void SysTick_Handler(void)
 /* USER CODE BEGIN 1 */
 
 /**
+  * @brief This function handles CSI global interrupt.
+  * CRITICAL: Must be present when CSI interrupt is enabled!
+  * Without this handler, CSI interrupts cause system hang.
+  */
+void CSI_IRQHandler(void)
+{
+  HAL_DCMIPP_CSI_IRQHandler(&hdcmipp);
+}
+
+/**
   * @brief This function handles DCMIPP global interrupt.
   */
 void DCMIPP_IRQHandler(void)

@@ -1732,6 +1732,8 @@ void HAL_DCMIPP_PIPE_FrameEventCallback(DCMIPP_HandleTypeDef *hdcmipp, uint32_t 
   UNUSED(hdcmipp);
   UNUSED(Pipe);
 
+  printf("[DCMIPP CB] Frame event on pipe %lu\r\n", (unsigned long)Pipe);
+
   BSP_CAMERA_FrameEventCallback(0);
 }
 
@@ -1747,6 +1749,7 @@ void HAL_DCMIPP_PIPE_VsyncEventCallback(DCMIPP_HandleTypeDef *hdcmipp, uint32_t 
   UNUSED(hdcmipp);
   UNUSED(Pipe);
 
+  printf("[DCMIPP CB] Vsync event on pipe %lu\r\n", (unsigned long)Pipe);
   /* Update the frame counter and call the ISP statistics handler */
   ISP_IncMainFrameId(&hcamera_isp);
   ISP_GatherStatistics(&hcamera_isp);
@@ -1766,6 +1769,12 @@ void HAL_DCMIPP_PIPE_ErrorCallback(DCMIPP_HandleTypeDef *hdcmipp, uint32_t Pipe)
   /* Prevent unused argument(s) compilation warning */
   UNUSED(hdcmipp);
   UNUSED(Pipe);
+
+  printf("[DCMIPP CB] ERROR on pipe %lu\r\n", (unsigned long)Pipe);
+  printf("[DCMIPP CB] CMCR=0x%08lX, CMIER=0x%08lX, CMSR2=0x%08lX\r\n",
+         (unsigned long)hcamera_dcmipp.Instance->CMCR,
+         (unsigned long)hcamera_dcmipp.Instance->CMIER,
+         (unsigned long)hcamera_dcmipp.Instance->CMSR2);
 
   BSP_CAMERA_PipeErrorCallback(0);
 }
